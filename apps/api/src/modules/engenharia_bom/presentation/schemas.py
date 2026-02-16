@@ -110,7 +110,7 @@ class BomTreeNode(SchemaBase):
     unidade_medida: UnidadeMedida
     perda_pct: Decimal
     observacao: str | None
-    children: list["BomTreeNode"] = Field(default_factory=list)
+    children: list[BomTreeNode] = Field(default_factory=list)
 
 
 BomTreeNode.model_rebuild()

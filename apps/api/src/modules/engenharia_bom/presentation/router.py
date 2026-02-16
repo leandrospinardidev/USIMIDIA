@@ -47,7 +47,9 @@ def _service(db: Session) -> BomService:
     return BomService(db)
 
 
-def _paginated_response(items: list[Any], *, page: int, page_size: int, total: int) -> dict[str, Any]:
+def _paginated_response(
+    items: list[Any], *, page: int, page_size: int, total: int
+) -> dict[str, Any]:
     return {"items": items, "meta": PageMeta(page=page, page_size=page_size, total=total)}
 
 
@@ -68,7 +70,7 @@ def list_boms(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
     produto_final_id: int | None = Query(default=None, gt=0),
-    status_filter: BomStatus | None = Query(default=None, alias="status"),
+    status_filter: Annotated[BomStatus | None, Query(alias="status")] = None,
 ) -> dict[str, Any]:
     items, total = _service(db).list_boms(
         page=page,
@@ -144,7 +146,7 @@ def explode_bom(
     _: ReadPermission,
     db: DbSession,
     bom_id: int,
-    quantidade_base: Decimal = Query(default=Decimal("1"), gt=0),
+    quantidade_base: Annotated[Decimal, Query(gt=0)] = Decimal("1"),
 ):
     bom, insumos, custo_total = _service(db).explode_bom(
         bom_id=bom_id,

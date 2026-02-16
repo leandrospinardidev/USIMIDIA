@@ -48,7 +48,11 @@ class BomModel(Base):
     )
     versao: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
-    valido_de: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
+    valido_de: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+        server_default=func.current_date(),
+    )
     valido_ate: Mapped[date | None] = mapped_column(Date)
     observacao: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

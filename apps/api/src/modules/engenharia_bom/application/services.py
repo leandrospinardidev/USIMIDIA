@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
@@ -18,6 +18,7 @@ STATUS_RASCUNHO = "RASCUNHO"
 STATUS_ATIVA = "ATIVA"
 STATUS_OBSOLETA = "OBSOLETA"
 STATUS_GRAFO = (STATUS_RASCUNHO, STATUS_ATIVA)
+HTTP_422 = status.HTTP_422_UNPROCESSABLE_CONTENT
 
 ITEM_TIPO_INSUMO = "INSUMO"
 ITEM_TIPO_SUBCONJUNTO = "SUBCONJUNTO"
@@ -96,7 +97,10 @@ class BomService:
         self._validate_validity_period(valido_de=novo_valido_de, valido_ate=novo_valido_ate)
 
         if status_value == STATUS_ATIVA and bom.status != STATUS_ATIVA:
-            self._obsoletar_boms_ativas(produto_final_id=bom.produto_final_id, exclude_bom_id=bom.id)
+            self._obsoletar_boms_ativas(
+                produto_final_id=bom.produto_final_id,
+                exclude_bom_id=bom.id,
+            )
 
         if "status" in payload:
             bom.status = status_value
@@ -187,7 +191,9 @@ class BomService:
             return bom, []
 
         insumo_ids = {item.insumo_id for item in all_items if item.insumo_id is not None}
-        produto_ids = {item.produto_filho_id for item in all_items if item.produto_filho_id is not None}
+        produto_ids = {
+            item.produto_filho_id for item in all_items if item.produto_filho_id is not None
+        }
 
         insumo_map = self._insumo_map(insumo_ids)
         produto_map = self._produto_map(produto_ids)
@@ -248,7 +254,7 @@ class BomService:
     ) -> tuple[BomModel, list[dict[str, Any]], Decimal]:
         if quantidade_base <= 0:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=HTTP_422,
                 detail="quantidade_base deve ser maior que zero.",
             )
 
@@ -368,7 +374,7 @@ class BomService:
         item_tipo = self._enum_to_str(payload.get("item_tipo"))
         if item_tipo not in (ITEM_TIPO_INSUMO, ITEM_TIPO_SUBCONJUNTO):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="item_tipo invalido para item de BOM.",
             )
 
@@ -393,12 +399,12 @@ class BomService:
 
         if quantidade <= 0:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="quantidade deve ser maior que zero.",
             )
         if perda_pct < 0 or perda_pct > 100:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="perda_pct deve estar entre 0 e 100.",
             )
 
@@ -407,7 +413,7 @@ class BomService:
             produto_filho_id = payload.get("produto_filho_id")
             if insumo_id is None or produto_filho_id is not None:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=HTTP_422,
                     detail="Item INSUMO exige insumo_id e proibe produto_filho_id.",
                 )
             insumo = self._ensure_insumo_exists(int(insumo_id))
@@ -431,7 +437,7 @@ class BomService:
         produto_filho_id = payload.get("produto_filho_id")
         if produto_filho_id is None or insumo_id is not None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="Item SUBCONJUNTO exige produto_filho_id e proibe insumo_id.",
             )
 
@@ -475,17 +481,17 @@ class BomService:
         parent_item = self.db.get(BomItemModel, parent_item_id)
         if parent_item is None or parent_item.bom_id != bom_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="parent_item_id deve referenciar item do mesmo BOM.",
             )
         if current_item_id is not None and parent_item.id == current_item_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="Um item nao pode ser pai de si mesmo.",
             )
         if parent_item.item_tipo != ITEM_TIPO_SUBCONJUNTO:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="Apenas itens SUBCONJUNTO podem receber filhos.",
             )
         return parent_item
@@ -505,7 +511,7 @@ class BomService:
         while cursor is not None:
             if cursor == current_item_id:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=HTTP_422,
                     detail="Estrutura de arvore invalida: ciclo por parent_item_id.",
                 )
             if cursor in visited:
@@ -526,7 +532,7 @@ class BomService:
     ) -> None:
         if parent_product_id == child_product_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="Ciclo detectado: produto nao pode depender de si mesmo.",
             )
 
@@ -537,7 +543,7 @@ class BomService:
             exclude_item_id=exclude_item_id,
         ):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="Ciclo detectado na estrutura BOM (A -> ... -> A).",
             )
 
@@ -688,7 +694,7 @@ class BomService:
             return referencia
         if unidade_informada != referencia:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="unidade_medida divergente da referencia do cadastro.",
             )
         return unidade_informada
@@ -703,7 +709,7 @@ class BomService:
     def _validate_validity_period(self, *, valido_de: date, valido_ate: date | None) -> None:
         if valido_ate is not None and valido_ate < valido_de:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="valido_ate nao pode ser menor que valido_de.",
             )
 
@@ -728,7 +734,7 @@ class BomService:
     def _ensure_no_runtime_cycle(self, product_stack: set[int], child_product_id: int) -> None:
         if child_product_id in product_stack:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTP_422,
                 detail="Ciclo detectado durante explosao da BOM.",
             )
 
