@@ -28,7 +28,7 @@ def get_current_role(x_user_role: Annotated[str | None, Header()] = None) -> Use
 
 
 def require_roles(*roles: UserRole):
-    def _checker(role: UserRole = Depends(get_current_role)) -> UserRole:
+    def _checker(role: Annotated[UserRole, Depends(get_current_role)]) -> UserRole:
         if role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
