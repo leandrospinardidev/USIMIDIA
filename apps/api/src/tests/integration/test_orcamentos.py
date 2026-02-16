@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from core.config import get_settings
 from core.database import Base, get_db
 from main import app
 from modules.cadastro.infrastructure import models as cadastro_models  # noqa: F401
@@ -16,7 +19,9 @@ ADMIN_HEADERS = {"X-User-Role": "admin"}
 
 
 @pytest.fixture
-def client() -> TestClient:
+def client(tmp_path) -> TestClient:
+    os.environ["UPLOADS_DIR"] = str(tmp_path / "uploads")
+    get_settings.cache_clear()
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -37,6 +42,7 @@ def client() -> TestClient:
         yield test_client
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)
+    get_settings.cache_clear()
 
 
 def _create_cliente(client: TestClient) -> dict:
@@ -171,6 +177,7 @@ def test_orcamento_versionado_e_status(client: TestClient) -> None:
         headers=ADMIN_HEADERS,
         json={
             "codigo": "ORC-TEST-001",
+            "referencia_projeto": "PROJ-ALPHA-001",
             "cliente_id": cliente["id"],
             "produto_final_id": produto["id"],
             "bom_id": bom["id"],
@@ -191,6 +198,7 @@ def test_orcamento_versionado_e_status(client: TestClient) -> None:
     assert create_orc.status_code == 201
     orc = create_orc.json()
     assert orc["codigo"] == "ORC-TEST-001"
+    assert orc["referencia_projeto"] == "PROJ-ALPHA-001"
     assert orc["status"] == "RASCUNHO"
     assert len(orc["versoes"]) == 1
     assert orc["versoes"][0]["versao"] == 1
@@ -222,6 +230,7 @@ def test_orcamento_versionado_e_status(client: TestClient) -> None:
     assert listagem.status_code == 200
     assert listagem.json()["meta"]["total"] == 1
     assert listagem.json()["items"][0]["versao_atual"] == 2
+    assert listagem.json()["items"][0]["referencia_projeto"] == "PROJ-ALPHA-001"
 
     status_update = client.patch(
         f"/api/v1/orcamentos/{orc['id']}/status",
@@ -230,3 +239,65 @@ def test_orcamento_versionado_e_status(client: TestClient) -> None:
     )
     assert status_update.status_code == 200
     assert status_update.json()["status"] == "ENVIADO"
+
+
+def test_upload_listagem_e_download_de_anexos_orcamento(client: TestClient) -> None:
+    cliente = _create_cliente(client)
+    produto = _create_produto(client)
+    insumo = _create_insumo(client)
+    centro = _create_centro(client)
+    bom = _create_bom_base(client, produto_id=produto["id"], insumo_id=insumo["id"])
+
+    create_orc = client.post(
+        "/api/v1/orcamentos",
+        headers=ADMIN_HEADERS,
+        json={
+            "codigo": "ORC-TEST-ANX-001",
+            "referencia_projeto": "PROJ-ANEXO-001",
+            "cliente_id": cliente["id"],
+            "produto_final_id": produto["id"],
+            "bom_id": bom["id"],
+            "quantidade": "1",
+            "margem_lucro_pct": "20",
+            "operacoes": [
+                {
+                    "centro_trabalho_id": centro["id"],
+                    "setup_min": "10",
+                    "ciclo_min": "5",
+                }
+            ],
+        },
+    )
+    assert create_orc.status_code == 201
+    orc = create_orc.json()
+
+    dxf_content = b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n"
+    upload = client.post(
+        f"/api/v1/orcamentos/{orc['id']}/anexos",
+        headers=ADMIN_HEADERS,
+        files={"file": ("desenho_tecnico.dxf", dxf_content, "application/dxf")},
+        data={"observacao": "Primeira versao do desenho"},
+    )
+    assert upload.status_code == 201
+    anexo = upload.json()
+    assert anexo["orcamento_id"] == orc["id"]
+    assert anexo["nome_arquivo_original"] == "desenho_tecnico.dxf"
+    assert anexo["tamanho_bytes"] == len(dxf_content)
+    assert anexo["download_path"].endswith(f"/orcamentos/anexos/{anexo['id']}/download")
+
+    list_anexos = client.get(
+        f"/api/v1/orcamentos/{orc['id']}/anexos?page=1&page_size=20",
+        headers=ADMIN_HEADERS,
+    )
+    assert list_anexos.status_code == 200
+    payload = list_anexos.json()
+    assert payload["meta"]["total"] == 1
+    assert payload["items"][0]["id"] == anexo["id"]
+
+    detail = client.get(f"/api/v1/orcamentos/{orc['id']}", headers=ADMIN_HEADERS)
+    assert detail.status_code == 200
+    assert len(detail.json()["anexos"]) == 1
+
+    download = client.get(f"/api/v1/orcamentos/anexos/{anexo['id']}/download", headers=ADMIN_HEADERS)
+    assert download.status_code == 200
+    assert download.content == dxf_content

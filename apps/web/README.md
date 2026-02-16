@@ -10,6 +10,12 @@ Implementado nesta etapa:
   - botoes de evento START/PAUSA/RETOMADA/STOP,
   - registro de refugo,
   - resumo de tempo/eventos/refugos em tempo real.
+- dashboard de indicadores com KPI geral, lista por OP e rastreabilidade.
+- gerador de orcamentos com:
+  - simulacao de custo (material + maquina + indiretos),
+  - cadastro de referencia de projeto,
+  - criacao/listagem de orcamentos,
+  - upload/download de anexos tecnicos (PDF/DXF/STEP etc.).
 
 ## Rodar local
 

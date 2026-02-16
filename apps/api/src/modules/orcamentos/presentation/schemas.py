@@ -40,6 +40,7 @@ class OrcamentoCalculoRequest(SchemaBase):
 
 class OrcamentoCreate(OrcamentoCalculoRequest):
     codigo: str | None = Field(default=None, min_length=1, max_length=40)
+    referencia_projeto: str | None = Field(default=None, max_length=80)
     observacao: str | None = Field(default=None, max_length=3000)
     moeda: str = Field(default="BRL", min_length=3, max_length=10)
 
@@ -51,6 +52,7 @@ class OrcamentoVersaoCreate(SchemaBase):
     custo_indireto_fixo: Decimal = Field(default=Decimal("0"), ge=0)
     custo_indireto_pct: Decimal = Field(default=Decimal("0"), ge=0)
     operacoes: list[OrcamentoOperacaoInput] = Field(default_factory=list)
+    referencia_projeto: str | None = Field(default=None, max_length=80)
     observacao: str | None = Field(default=None, max_length=3000)
     moeda: str = Field(default="BRL", min_length=3, max_length=10)
 
@@ -108,6 +110,22 @@ class OrcamentoVersaoResponse(SchemaBase):
     operacoes: list[OrcamentoOperacaoResultado]
 
 
+class OrcamentoAnexoResponse(SchemaBase):
+    id: int
+    orcamento_id: int
+    nome_arquivo_original: str
+    content_type: str | None
+    tamanho_bytes: int
+    observacao: str | None
+    uploaded_at: datetime
+    download_path: str
+
+
+class OrcamentoAnexoListResponse(SchemaBase):
+    items: list[OrcamentoAnexoResponse]
+    meta: PageMeta
+
+
 class OrcamentoResponse(SchemaBase):
     id: int
     codigo: str
@@ -117,10 +135,12 @@ class OrcamentoResponse(SchemaBase):
     produto_final_id: int
     produto_codigo: str
     produto_descricao: str
+    referencia_projeto: str | None
     observacao: str | None
     created_at: datetime
     updated_at: datetime
     versoes: list[OrcamentoVersaoResponse]
+    anexos: list[OrcamentoAnexoResponse]
 
 
 class OrcamentoListItem(SchemaBase):
@@ -132,6 +152,7 @@ class OrcamentoListItem(SchemaBase):
     produto_final_id: int
     produto_codigo: str
     produto_descricao: str
+    referencia_projeto: str | None
     versao_atual: int | None
     preco_venda_atual: Decimal | None
     created_at: datetime

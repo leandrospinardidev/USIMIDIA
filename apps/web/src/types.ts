@@ -196,3 +196,136 @@ export interface RastreabilidadeOrdem {
   lotes_relacionados: RastreabilidadeLote[];
   fluxo_retalhos: RastreabilidadeFluxoRetalho[];
 }
+
+export type OrcamentoStatus = "RASCUNHO" | "ENVIADO" | "APROVADO" | "REJEITADO";
+
+export interface ClienteCadastro {
+  id: number;
+  codigo: string;
+  razao_social: string;
+}
+
+export interface ProdutoFinalCadastro {
+  id: number;
+  codigo: string;
+  descricao: string;
+  margem_lucro_padrao_pct: string;
+}
+
+export interface CentroTrabalhoCadastro {
+  id: number;
+  codigo: string;
+  nome: string;
+  taxa_horaria: string;
+}
+
+export interface BomListItem {
+  id: number;
+  produto_final_id: number;
+  versao: number;
+  status: string;
+}
+
+export interface OrcamentoOperacaoInput {
+  centro_trabalho_id: number;
+  setup_min?: string;
+  ciclo_min: string;
+  descricao?: string;
+}
+
+export interface OrcamentoMaterialResultado {
+  insumo_id: number;
+  codigo: string;
+  descricao: string;
+  unidade_medida: string;
+  quantidade_total: string;
+  custo_unitario: string;
+  custo_total: string;
+}
+
+export interface OrcamentoOperacaoResultado {
+  sequencia: number;
+  centro_trabalho_id: number;
+  codigo_centro: string;
+  nome_centro: string;
+  setup_min: string;
+  ciclo_min: string;
+  tempo_total_horas: string;
+  taxa_horaria: string;
+  custo_operacao: string;
+  descricao: string | null;
+}
+
+export interface OrcamentoSimulacao {
+  produto_final_id: number;
+  bom_id: number;
+  quantidade: string;
+  margem_lucro_pct: string;
+  custo_material_total: string;
+  custo_maquina_total: string;
+  custo_indireto_total: string;
+  custo_total: string;
+  preco_venda: string;
+  materiais: OrcamentoMaterialResultado[];
+  operacoes: OrcamentoOperacaoResultado[];
+}
+
+export interface OrcamentoAnexo {
+  id: number;
+  orcamento_id: number;
+  nome_arquivo_original: string;
+  content_type: string | null;
+  tamanho_bytes: number;
+  observacao: string | null;
+  uploaded_at: string;
+  download_path: string;
+}
+
+export interface OrcamentoVersao {
+  id: number;
+  versao: number;
+  bom_id: number;
+  quantidade: string;
+  margem_lucro_pct: string;
+  custo_material_total: string;
+  custo_maquina_total: string;
+  custo_indireto_total: string;
+  preco_venda: string;
+  moeda: string;
+  created_at: string;
+  materiais: OrcamentoMaterialResultado[];
+  operacoes: OrcamentoOperacaoResultado[];
+}
+
+export interface OrcamentoListItem {
+  id: number;
+  codigo: string;
+  status: OrcamentoStatus;
+  cliente_id: number | null;
+  cliente_nome: string | null;
+  produto_final_id: number;
+  produto_codigo: string;
+  produto_descricao: string;
+  referencia_projeto: string | null;
+  versao_atual: number | null;
+  preco_venda_atual: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrcamentoDetail {
+  id: number;
+  codigo: string;
+  status: OrcamentoStatus;
+  cliente_id: number | null;
+  cliente_nome: string | null;
+  produto_final_id: number;
+  produto_codigo: string;
+  produto_descricao: string;
+  referencia_projeto: string | null;
+  observacao: string | null;
+  created_at: string;
+  updated_at: string;
+  versoes: OrcamentoVersao[];
+  anexos: OrcamentoAnexo[];
+}

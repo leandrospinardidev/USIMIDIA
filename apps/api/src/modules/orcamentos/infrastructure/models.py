@@ -59,6 +59,7 @@ class OrcamentoModel(Base):
         default="RASCUNHO",
         server_default="RASCUNHO",
     )
+    referencia_projeto: Mapped[str | None] = mapped_column(String(80))
     observacao: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -173,3 +174,31 @@ class OrcamentoVersaoOperacaoModel(Base):
     taxa_horaria: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     custo_operacao: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     descricao: Mapped[str | None] = mapped_column(String(200))
+
+
+class OrcamentoAnexoModel(Base):
+    __tablename__ = "orcamento_anexos"
+    __table_args__ = (
+        CheckConstraint("tamanho_bytes >= 0", name="ck_orc_anexo_tamanho"),
+    )
+
+    id: Mapped[int] = _bigint_pk()
+    orcamento_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("orcamentos.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    nome_arquivo_original: Mapped[str] = mapped_column(String(255), nullable=False)
+    nome_arquivo_storage: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    content_type: Mapped[str | None] = mapped_column(String(120))
+    tamanho_bytes: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=False,
+    )
+    caminho_relativo: Mapped[str] = mapped_column(String(500), nullable=False)
+    observacao: Mapped[str | None] = mapped_column(String(300))
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
@@ -10,6 +12,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.config import get_settings
 from modules.cadastro.infrastructure.models import (
     CentroTrabalhoModel,
     ClienteModel,
@@ -18,6 +21,7 @@ from modules.cadastro.infrastructure.models import (
 from modules.engenharia_bom.application.services import BomService
 from modules.engenharia_bom.infrastructure.models import BomModel
 from modules.orcamentos.infrastructure.models import (
+    OrcamentoAnexoModel,
     OrcamentoModel,
     OrcamentoVersaoModel,
     OrcamentoVersaoOperacaoModel,
@@ -25,6 +29,19 @@ from modules.orcamentos.infrastructure.models import (
 
 HTTP_422 = status.HTTP_422_UNPROCESSABLE_CONTENT
 STATUS_PERMITIDOS = {"RASCUNHO", "ENVIADO", "APROVADO", "REJEITADO"}
+ALLOWED_ANEXO_EXTENSIONS = {
+    ".pdf",
+    ".dxf",
+    ".dwg",
+    ".step",
+    ".stp",
+    ".iges",
+    ".igs",
+    ".png",
+    ".jpg",
+    ".jpeg",
+}
+MAX_ANEXO_SIZE_BYTES = 25 * 1024 * 1024
 
 
 class OrcamentosService:
@@ -107,6 +124,7 @@ class OrcamentosService:
             cliente_id=payload.get("cliente_id"),
             produto_final_id=sim["produto_final_id"],
             status="RASCUNHO",
+            referencia_projeto=payload.get("referencia_projeto"),
             observacao=payload.get("observacao"),
         )
         self.db.add(orcamento)
@@ -148,6 +166,8 @@ class OrcamentosService:
             moeda=self._normalize_moeda(payload.get("moeda", "BRL")),
             payload=sim_payload,
         )
+        if payload.get("referencia_projeto") is not None:
+            orcamento.referencia_projeto = payload.get("referencia_projeto")
         if payload.get("observacao") is not None:
             orcamento.observacao = payload.get("observacao")
         orcamento.updated_at = datetime.now(UTC)
@@ -223,6 +243,7 @@ class OrcamentosService:
                     "produto_final_id": orc.produto_final_id,
                     "produto_codigo": produto.codigo,
                     "produto_descricao": produto.descricao,
+                    "referencia_projeto": orc.referencia_projeto,
                     "versao_atual": versao_atual["versao"] if versao_atual else None,
                     "preco_venda_atual": versao_atual["preco_venda"] if versao_atual else None,
                     "created_at": orc.created_at,
@@ -259,6 +280,13 @@ class OrcamentosService:
                 .order_by(OrcamentoVersaoModel.versao.desc())
             ).all()
         )
+        anexos = list(
+            self.db.scalars(
+                select(OrcamentoAnexoModel)
+                .where(OrcamentoAnexoModel.orcamento_id == orc.id)
+                .order_by(OrcamentoAnexoModel.uploaded_at.desc(), OrcamentoAnexoModel.id.desc())
+            ).all()
+        )
         versao_ids = [versao.id for versao in versoes]
         ops_map = self._operacoes_por_versao(versao_ids)
 
@@ -290,10 +318,103 @@ class OrcamentosService:
             "produto_final_id": orc.produto_final_id,
             "produto_codigo": produto.codigo,
             "produto_descricao": produto.descricao,
+            "referencia_projeto": orc.referencia_projeto,
             "observacao": orc.observacao,
             "created_at": orc.created_at,
             "updated_at": orc.updated_at,
             "versoes": versoes_payload,
+            "anexos": [self._anexo_to_payload(anexo) for anexo in anexos],
+        }
+
+    def upload_anexo(
+        self,
+        *,
+        orcamento_id: int,
+        nome_arquivo: str,
+        content_type: str | None,
+        observacao: str | None,
+        file_bytes: bytes,
+    ) -> dict[str, Any]:
+        self._get_orcamento_or_404(orcamento_id)
+        nome_arquivo_limpo = Path(nome_arquivo).name.strip()
+        if not nome_arquivo_limpo:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Nome de arquivo invalido.",
+            )
+        extensao = Path(nome_arquivo_limpo).suffix.lower()
+        if extensao not in ALLOWED_ANEXO_EXTENSIONS:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Extensao de arquivo nao suportada para anexo tecnico.",
+            )
+        if not file_bytes:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Arquivo vazio nao pode ser enviado.",
+            )
+        if len(file_bytes) > MAX_ANEXO_SIZE_BYTES:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Arquivo excede o limite de 25MB.",
+            )
+
+        storage_filename = f"{uuid.uuid4().hex}{extensao}"
+        target_dir = self._upload_root_path() / "orcamentos" / str(orcamento_id)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        absolute_path = target_dir / storage_filename
+        absolute_path.write_bytes(file_bytes)
+
+        relative_path = str(Path("orcamentos") / str(orcamento_id) / storage_filename)
+        anexo = OrcamentoAnexoModel(
+            orcamento_id=orcamento_id,
+            nome_arquivo_original=nome_arquivo_limpo,
+            nome_arquivo_storage=storage_filename,
+            content_type=content_type,
+            tamanho_bytes=len(file_bytes),
+            caminho_relativo=relative_path,
+            observacao=observacao,
+        )
+        self.db.add(anexo)
+        self._commit_or_409("Falha ao salvar anexo tecnico do orcamento.")
+        self.db.refresh(anexo)
+        return self._anexo_to_payload(anexo)
+
+    def list_anexos(
+        self,
+        *,
+        orcamento_id: int,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        self._get_orcamento_or_404(orcamento_id)
+        stmt = select(OrcamentoAnexoModel).where(OrcamentoAnexoModel.orcamento_id == orcamento_id)
+        total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+        rows = list(
+            self.db.scalars(
+                stmt.order_by(OrcamentoAnexoModel.uploaded_at.desc(), OrcamentoAnexoModel.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).all()
+        )
+        return [self._anexo_to_payload(row) for row in rows], int(total)
+
+    def get_anexo_download(self, anexo_id: int) -> dict[str, Any]:
+        anexo = self.db.get(OrcamentoAnexoModel, anexo_id)
+        if anexo is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Anexo de orcamento nao encontrado.",
+            )
+        absolute_path = self._upload_root_path() / anexo.caminho_relativo
+        if not absolute_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Arquivo fisico do anexo nao encontrado.",
+            )
+        return {
+            **self._anexo_to_payload(anexo),
+            "absolute_path": str(absolute_path),
         }
 
     def _create_versao(
@@ -345,6 +466,22 @@ class OrcamentosService:
                 )
             )
         return versao_model
+
+    def _upload_root_path(self) -> Path:
+        settings = get_settings()
+        return Path(settings.uploads_dir).expanduser().resolve()
+
+    def _anexo_to_payload(self, anexo: OrcamentoAnexoModel) -> dict[str, Any]:
+        return {
+            "id": anexo.id,
+            "orcamento_id": anexo.orcamento_id,
+            "nome_arquivo_original": anexo.nome_arquivo_original,
+            "content_type": anexo.content_type,
+            "tamanho_bytes": anexo.tamanho_bytes,
+            "observacao": anexo.observacao,
+            "uploaded_at": anexo.uploaded_at,
+            "download_path": f"/api/v1/orcamentos/anexos/{anexo.id}/download",
+        }
 
     def _simulate_operacoes(
         self,

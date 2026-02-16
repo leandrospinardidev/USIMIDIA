@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AppTopbar } from "./components/AppTopbar";
 import { IndicadoresPanel } from "./components/IndicadoresPanel";
 import { MesPanel } from "./components/MesPanel";
+import { OrcamentosPanel } from "./components/OrcamentosPanel";
 import type { UserRole } from "./types";
 import type { AppViewMode } from "./components/AppTopbar";
 
@@ -51,6 +52,15 @@ export default function App() {
           role={role}
           statusFilters={STATUS_FILTERS}
           isActive={viewMode === "indicadores"}
+          onError={setError}
+          onSuccess={setSuccess}
+        />
+      </div>
+      <div className={viewMode === "orcamentos" ? "block" : "hidden"}>
+        <OrcamentosPanel
+          role={role}
+          statusFilters={STATUS_FILTERS}
+          isActive={viewMode === "orcamentos"}
           onError={setError}
           onSuccess={setSuccess}
         />

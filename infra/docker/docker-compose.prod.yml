@@ -28,6 +28,8 @@ services:
         condition: service_healthy
     expose:
       - "8000"
+    volumes:
+      - uploads_prod:/app/storage/uploads
     networks:
       - erp_net
 
@@ -65,6 +67,7 @@ services:
 
 volumes:
   pgdata_prod:
+  uploads_prod:
 
 networks:
   erp_net:

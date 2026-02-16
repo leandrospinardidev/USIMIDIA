@@ -16,6 +16,7 @@ class Settings(BaseSettings):
         description="Conexao do banco PostgreSQL",
     )
     cors_allowed_origins: str = "*"
+    uploads_dir: str = "./storage/uploads"
 
     model_config = SettingsConfigDict(
         env_file=".env",
