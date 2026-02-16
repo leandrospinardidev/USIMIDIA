@@ -238,9 +238,31 @@ class OrcamentoPresetCncModel(Base):
             "tempo_real_min_total >= 0",
             name="ck_orc_preset_tempo_real",
         ),
+        CheckConstraint(
+            "versao_atual >= 1",
+            name="ck_orc_preset_versao_atual",
+        ),
+        CheckConstraint(
+            "total_aplicacoes >= 0",
+            name="ck_orc_preset_total_aplicacoes",
+        ),
+        CheckConstraint(
+            "total_orcamentos >= 0",
+            name="ck_orc_preset_total_orcamentos",
+        ),
+        CheckConstraint(
+            "erro_absoluto_acumulado_pct >= 0",
+            name="ck_orc_preset_erro_abs_acumulado",
+        ),
     )
 
     id: Mapped[int] = _bigint_pk()
+    versao_atual: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     codigo: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
     nome: Mapped[str] = mapped_column(String(120), nullable=False)
     descricao: Mapped[str | None] = mapped_column(Text)
@@ -313,6 +335,24 @@ class OrcamentoPresetCncModel(Base):
         default=0,
         server_default="0",
     )
+    total_aplicacoes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    total_orcamentos: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    erro_absoluto_acumulado_pct: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
     tempo_planejado_min_total: Mapped[Decimal] = mapped_column(
         Numeric(14, 2),
         nullable=False,
@@ -326,6 +366,7 @@ class OrcamentoPresetCncModel(Base):
         server_default="0",
     )
     ultima_calibracao_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ultima_aplicacao_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -336,4 +377,47 @@ class OrcamentoPresetCncModel(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class OrcamentoPresetCncHistoricoModel(Base):
+    __tablename__ = "orcamento_presets_cnc_historico"
+    __table_args__ = (
+        CheckConstraint("versao >= 1", name="ck_orc_preset_hist_versao"),
+        CheckConstraint(
+            "acao IN ('CRIACAO','ATUALIZACAO','RECALIBRACAO')",
+            name="ck_orc_preset_hist_acao",
+        ),
+        UniqueConstraint(
+            "preset_id",
+            "versao",
+            name="uq_orc_preset_hist_versao",
+        ),
+    )
+
+    id: Mapped[int] = _bigint_pk()
+    preset_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("orcamento_presets_cnc.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    versao: Mapped[int] = mapped_column(Integer, nullable=False)
+    acao: Mapped[str] = mapped_column(String(20), nullable=False)
+    motivo: Mapped[str | None] = mapped_column(String(300))
+    snapshot_json: Mapped[dict] = mapped_column(
+        JsonType,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    metricas_json: Mapped[dict] = mapped_column(
+        JsonType,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )

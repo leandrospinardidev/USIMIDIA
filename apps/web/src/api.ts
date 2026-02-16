@@ -11,7 +11,11 @@ import type {
   OrcamentoListItem,
   OrcamentoOperacaoInput,
   OrcamentoPresetCnc,
+  OrcamentoPresetHistoricoItem,
+  OrcamentoPresetRankingItem,
+  OrcamentoPresetRegistroUso,
   OrcamentoPresetRecalibracao,
+  OrcamentoPresetSugestao,
   OrcamentoPdfSimulacao,
   OrcamentoSimulacao,
   OrdemDetail,
@@ -275,10 +279,30 @@ interface ListOrcamentoPresetsFilters {
   search?: string;
 }
 
+interface OrcamentoPresetRankingFilters {
+  limit?: number;
+  clienteId?: number;
+  produtoFinalId?: number;
+  centroTrabalhoId?: number;
+  materialReferencia?: string;
+  familiaPeca?: string;
+  tipoPeca?: string;
+}
+
+interface OrcamentoPresetSugestaoFilters {
+  clienteId?: number;
+  produtoFinalId?: number;
+  centroTrabalhoId?: number;
+  materialReferencia?: string;
+  familiaPeca?: string;
+  tipoPeca?: string;
+}
+
 interface OrcamentoCalculoPayload {
   cliente_id?: number;
   produto_final_id: number;
   bom_id?: number;
+  preset_cnc_id?: number;
   quantidade: string;
   margem_lucro_pct?: string;
   custo_indireto_fixo?: string;
@@ -324,6 +348,7 @@ interface OrcamentoPresetCncCreatePayload {
   custo_indireto_pct?: string;
   operacoes_template?: OrcamentoPresetOperacaoTemplatePayload[];
   heuristicas?: Record<string, unknown>;
+  motivo_versao?: string;
 }
 
 interface OrcamentoPresetCncUpdatePayload extends Partial<OrcamentoPresetCncCreatePayload> {}
@@ -333,6 +358,13 @@ interface OrcamentoPresetRecalibrarPayload {
   centro_trabalho_id?: number;
   produto_final_id?: number;
   suavizacao_alpha?: string;
+  motivo_versao?: string;
+}
+
+interface OrcamentoPresetRegistrarUsoPayload {
+  tipo_evento?: string;
+  erro_previsao_pct?: string;
+  observacao?: string;
 }
 
 export async function listClientesCadastro(
@@ -495,6 +527,62 @@ export async function recalibrarOrcamentoPresetCnc(
       body: payload,
     }
   );
+}
+
+export async function registrarUsoOrcamentoPresetCnc(
+  role: UserRole,
+  presetId: number,
+  payload: OrcamentoPresetRegistrarUsoPayload
+): Promise<OrcamentoPresetRegistroUso> {
+  return apiRequest<OrcamentoPresetRegistroUso>(`/orcamentos/presets-cnc/${presetId}/registrar-uso`, {
+    method: "POST",
+    role,
+    body: payload,
+  });
+}
+
+export async function listOrcamentoPresetHistorico(
+  role: UserRole,
+  presetId: number
+): Promise<PaginatedResponse<OrcamentoPresetHistoricoItem>> {
+  return apiRequest<PaginatedResponse<OrcamentoPresetHistoricoItem>>(
+    `/orcamentos/presets-cnc/${presetId}/historico?page=1&page_size=20`,
+    { role }
+  );
+}
+
+export async function listOrcamentoPresetsRanking(
+  role: UserRole,
+  filters: OrcamentoPresetRankingFilters
+): Promise<{ items: OrcamentoPresetRankingItem[] }> {
+  const query = toQuery({
+    limit: filters.limit ?? 8,
+    cliente_id: filters.clienteId,
+    produto_final_id: filters.produtoFinalId,
+    centro_trabalho_id: filters.centroTrabalhoId,
+    material_referencia: filters.materialReferencia,
+    familia_peca: filters.familiaPeca,
+    tipo_peca: filters.tipoPeca,
+  });
+  return apiRequest<{ items: OrcamentoPresetRankingItem[] }>(
+    `/orcamentos/presets-cnc/ranking?${query}`,
+    { role }
+  );
+}
+
+export async function getOrcamentoPresetSugestao(
+  role: UserRole,
+  filters: OrcamentoPresetSugestaoFilters
+): Promise<OrcamentoPresetSugestao> {
+  const query = toQuery({
+    cliente_id: filters.clienteId,
+    produto_final_id: filters.produtoFinalId,
+    centro_trabalho_id: filters.centroTrabalhoId,
+    material_referencia: filters.materialReferencia,
+    familia_peca: filters.familiaPeca,
+    tipo_peca: filters.tipoPeca,
+  });
+  return apiRequest<OrcamentoPresetSugestao>(`/orcamentos/presets-cnc/sugestao?${query}`, { role });
 }
 
 export async function getOrcamento(

@@ -437,6 +437,8 @@ def test_presets_cnc_crud_e_recalibracao_mes(client: TestClient) -> None:
     preset = create_preset.json()
     assert preset["codigo"] == "PRCNC-TEST-001"
     assert preset["cliente_id"] == cliente["id"]
+    assert preset["versao_atual"] == 1
+    assert preset["total_aplicacoes"] == 0
 
     list_presets = client.get(
         f"/api/v1/orcamentos/presets-cnc?cliente_id={cliente['id']}&produto_final_id={produto['id']}",
@@ -445,6 +447,15 @@ def test_presets_cnc_crud_e_recalibracao_mes(client: TestClient) -> None:
     assert list_presets.status_code == 200
     assert list_presets.json()["meta"]["total"] >= 1
 
+    uso = client.post(
+        f"/api/v1/orcamentos/presets-cnc/{preset['id']}/registrar-uso",
+        headers=ADMIN_HEADERS,
+        json={"tipo_evento": "APLICACAO_MANUAL", "erro_previsao_pct": "4.5"},
+    )
+    assert uso.status_code == 200
+    assert uso.json()["total_aplicacoes"] == 1
+    assert float(uso.json()["erro_absoluto_acumulado_pct"]) == pytest.approx(4.5)
+
     update_preset = client.patch(
         f"/api/v1/orcamentos/presets-cnc/{preset['id']}",
         headers=ADMIN_HEADERS,
@@ -452,6 +463,66 @@ def test_presets_cnc_crud_e_recalibracao_mes(client: TestClient) -> None:
     )
     assert update_preset.status_code == 200
     assert update_preset.json()["nome"] == "Preset Flange Aco v2"
+    assert update_preset.json()["versao_atual"] == 2
+
+    historico_v2 = client.get(
+        f"/api/v1/orcamentos/presets-cnc/{preset['id']}/historico?page=1&page_size=20",
+        headers=ADMIN_HEADERS,
+    )
+    assert historico_v2.status_code == 200
+    historico_payload_v2 = historico_v2.json()
+    assert historico_payload_v2["meta"]["total"] == 2
+    assert historico_payload_v2["items"][0]["versao"] == 2
+    assert historico_payload_v2["items"][1]["versao"] == 1
+
+    ranking = client.get(
+        f"/api/v1/orcamentos/presets-cnc/ranking?cliente_id={cliente['id']}&produto_final_id={produto['id']}&limit=5",
+        headers=ADMIN_HEADERS,
+    )
+    assert ranking.status_code == 200
+    assert len(ranking.json()["items"]) >= 1
+    assert ranking.json()["items"][0]["preset"]["id"] == preset["id"]
+    assert float(ranking.json()["items"][0]["score_final"]) > 0
+
+    sugestao = client.get(
+        f"/api/v1/orcamentos/presets-cnc/sugestao?cliente_id={cliente['id']}&produto_final_id={produto['id']}",
+        headers=ADMIN_HEADERS,
+    )
+    assert sugestao.status_code == 200
+    assert sugestao.json()["preset"]["id"] == preset["id"]
+
+    orcamento_com_preset = client.post(
+        "/api/v1/orcamentos",
+        headers=ADMIN_HEADERS,
+        json={
+            "codigo": "ORC-PRESET-V41-001",
+            "cliente_id": cliente["id"],
+            "produto_final_id": produto["id"],
+            "bom_id": bom["id"],
+            "preset_cnc_id": preset["id"],
+            "quantidade": "2",
+            "margem_lucro_pct": "22",
+            "operacoes": [
+                {
+                    "centro_trabalho_id": centro["id"],
+                    "setup_min": "10",
+                    "ciclo_min": "6",
+                }
+            ],
+        },
+    )
+    assert orcamento_com_preset.status_code == 201
+    preset_pos_orc = client.get(
+        f"/api/v1/orcamentos/presets-cnc?cliente_id={cliente['id']}&produto_final_id={produto['id']}",
+        headers=ADMIN_HEADERS,
+    )
+    assert preset_pos_orc.status_code == 200
+    preset_refrescado = next(
+        (item for item in preset_pos_orc.json()["items"] if item["id"] == preset["id"]),
+        None,
+    )
+    assert preset_refrescado is not None
+    assert preset_refrescado["total_orcamentos"] >= 1
 
     recalibrar = client.post(
         f"/api/v1/orcamentos/presets-cnc/{preset['id']}/recalibrar-mes",
@@ -467,3 +538,12 @@ def test_presets_cnc_crud_e_recalibracao_mes(client: TestClient) -> None:
     recal_payload = recalibrar.json()
     assert recal_payload["amostras_utilizadas"] >= 1
     assert float(recal_payload["tempo_real_min_total"]) > 0
+
+    historico_v3 = client.get(
+        f"/api/v1/orcamentos/presets-cnc/{preset['id']}/historico?page=1&page_size=20",
+        headers=ADMIN_HEADERS,
+    )
+    assert historico_v3.status_code == 200
+    historico_payload_v3 = historico_v3.json()
+    assert historico_payload_v3["meta"]["total"] == 3
+    assert historico_payload_v3["items"][0]["versao"] == 3

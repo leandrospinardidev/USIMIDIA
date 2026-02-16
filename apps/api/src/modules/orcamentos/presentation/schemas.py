@@ -31,6 +31,7 @@ class OrcamentoCalculoRequest(SchemaBase):
     cliente_id: int | None = Field(default=None, gt=0)
     produto_final_id: int = Field(gt=0)
     bom_id: int | None = Field(default=None, gt=0)
+    preset_cnc_id: int | None = Field(default=None, gt=0)
     quantidade: Decimal = Field(gt=0)
     margem_lucro_pct: Decimal | None = Field(default=None, ge=0)
     custo_indireto_fixo: Decimal = Field(default=Decimal("0"), ge=0)
@@ -47,6 +48,7 @@ class OrcamentoCreate(OrcamentoCalculoRequest):
 
 class OrcamentoVersaoCreate(SchemaBase):
     bom_id: int | None = Field(default=None, gt=0)
+    preset_cnc_id: int | None = Field(default=None, gt=0)
     quantidade: Decimal = Field(gt=0)
     margem_lucro_pct: Decimal | None = Field(default=None, ge=0)
     custo_indireto_fixo: Decimal = Field(default=Decimal("0"), ge=0)
@@ -156,6 +158,7 @@ class OrcamentoPresetCncCreate(SchemaBase):
     custo_indireto_pct: Decimal = Field(default=Decimal("6"), ge=0)
     operacoes_template: list[OrcamentoPresetOperacaoTemplate] = Field(default_factory=list)
     heuristicas: dict = Field(default_factory=dict)
+    motivo_versao: str | None = Field(default=None, max_length=300)
 
 
 class OrcamentoPresetCncUpdate(SchemaBase):
@@ -181,6 +184,7 @@ class OrcamentoPresetCncUpdate(SchemaBase):
     custo_indireto_pct: Decimal | None = Field(default=None, ge=0)
     operacoes_template: list[OrcamentoPresetOperacaoTemplate] | None = None
     heuristicas: dict | None = None
+    motivo_versao: str | None = Field(default=None, max_length=300)
 
 
 class OrcamentoPresetRecalibrarRequest(SchemaBase):
@@ -188,6 +192,7 @@ class OrcamentoPresetRecalibrarRequest(SchemaBase):
     centro_trabalho_id: int | None = Field(default=None, gt=0)
     produto_final_id: int | None = Field(default=None, gt=0)
     suavizacao_alpha: Decimal = Field(default=Decimal("0.65"), ge=0, le=1)
+    motivo_versao: str | None = Field(default=None, max_length=300)
 
 
 class OrcamentoPresetRecalibrarResponse(SchemaBase):
@@ -207,6 +212,7 @@ class OrcamentoPresetRecalibrarResponse(SchemaBase):
 
 class OrcamentoPresetCncResponse(SchemaBase):
     id: int
+    versao_atual: int
     codigo: str
     nome: str
     descricao: str | None
@@ -230,9 +236,13 @@ class OrcamentoPresetCncResponse(SchemaBase):
     operacoes_template: list[OrcamentoPresetOperacaoTemplate]
     heuristicas: dict
     amostras_mes: int
+    total_aplicacoes: int
+    total_orcamentos: int
+    erro_absoluto_acumulado_pct: Decimal
     tempo_planejado_min_total: Decimal
     tempo_real_min_total: Decimal
     ultima_calibracao_at: datetime | None
+    ultima_aplicacao_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -240,6 +250,56 @@ class OrcamentoPresetCncResponse(SchemaBase):
 class OrcamentoPresetCncListResponse(SchemaBase):
     items: list[OrcamentoPresetCncResponse]
     meta: PageMeta
+
+
+class OrcamentoPresetHistoricoItem(SchemaBase):
+    id: int
+    preset_id: int
+    versao: int
+    acao: str
+    motivo: str | None
+    snapshot: dict
+    metricas: dict
+    created_at: datetime
+
+
+class OrcamentoPresetHistoricoListResponse(SchemaBase):
+    items: list[OrcamentoPresetHistoricoItem]
+    meta: PageMeta
+
+
+class OrcamentoPresetRegistrarUsoRequest(SchemaBase):
+    tipo_evento: str = Field(default="APLICACAO_MANUAL", min_length=1, max_length=40)
+    erro_previsao_pct: Decimal | None = Field(default=None, ge=0)
+    observacao: str | None = Field(default=None, max_length=300)
+
+
+class OrcamentoPresetRegistrarUsoResponse(SchemaBase):
+    preset_id: int
+    versao_atual: int
+    total_aplicacoes: int
+    total_orcamentos: int
+    erro_absoluto_acumulado_pct: Decimal
+    ultima_aplicacao_at: datetime | None
+
+
+class OrcamentoPresetRankingItem(SchemaBase):
+    preset: OrcamentoPresetCncResponse
+    score_uso: Decimal
+    score_assertividade: Decimal
+    score_contexto: Decimal
+    score_final: Decimal
+    motivos: list[str]
+
+
+class OrcamentoPresetRankingResponse(SchemaBase):
+    items: list[OrcamentoPresetRankingItem]
+
+
+class OrcamentoPresetSugestaoResponse(SchemaBase):
+    preset: OrcamentoPresetCncResponse | None
+    score_final: Decimal | None
+    motivos: list[str]
 
 
 class OrcamentoVersaoResponse(SchemaBase):

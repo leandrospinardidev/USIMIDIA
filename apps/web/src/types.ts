@@ -321,6 +321,7 @@ export interface OrcamentoPresetOperacaoTemplate {
 
 export interface OrcamentoPresetCnc {
   id: number;
+  versao_atual: number;
   codigo: string;
   nome: string;
   descricao: string | null;
@@ -344,9 +345,13 @@ export interface OrcamentoPresetCnc {
   operacoes_template: OrcamentoPresetOperacaoTemplate[];
   heuristicas: Record<string, unknown>;
   amostras_mes: number;
+  total_aplicacoes: number;
+  total_orcamentos: number;
+  erro_absoluto_acumulado_pct: string;
   tempo_planejado_min_total: string;
   tempo_real_min_total: string;
   ultima_calibracao_at: string | null;
+  ultima_aplicacao_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -364,6 +369,41 @@ export interface OrcamentoPresetRecalibracao {
   tempo_real_min_total: string;
   desvio_medio_pct: string;
   ultima_calibracao_at: string;
+}
+
+export interface OrcamentoPresetHistoricoItem {
+  id: number;
+  preset_id: number;
+  versao: number;
+  acao: "CRIACAO" | "ATUALIZACAO" | "RECALIBRACAO" | string;
+  motivo: string | null;
+  snapshot: Record<string, unknown>;
+  metricas: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface OrcamentoPresetRegistroUso {
+  preset_id: number;
+  versao_atual: number;
+  total_aplicacoes: number;
+  total_orcamentos: number;
+  erro_absoluto_acumulado_pct: string;
+  ultima_aplicacao_at: string | null;
+}
+
+export interface OrcamentoPresetRankingItem {
+  preset: OrcamentoPresetCnc;
+  score_uso: string;
+  score_assertividade: string;
+  score_contexto: string;
+  score_final: string;
+  motivos: string[];
+}
+
+export interface OrcamentoPresetSugestao {
+  preset: OrcamentoPresetCnc | null;
+  score_final: string | null;
+  motivos: string[];
 }
 
 export interface OrcamentoAnexo {

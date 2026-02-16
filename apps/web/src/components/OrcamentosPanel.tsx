@@ -5,13 +5,17 @@ import {
   criarOrcamento,
   downloadOrcamentoAnexo,
   getOrcamento,
+  getOrcamentoPresetSugestao,
   listBomsByProduto,
   listCentrosCadastro,
   listClientesCadastro,
+  listOrcamentoPresetHistorico,
   listOrcamentoPresetsCnc,
+  listOrcamentoPresetsRanking,
   listOrcamentos,
   listProdutosCadastro,
   recalibrarOrcamentoPresetCnc,
+  registrarUsoOrcamentoPresetCnc,
   simularOrcamento,
   simularOrcamentoPorPdf,
   updateOrcamentoPresetCnc,
@@ -37,7 +41,10 @@ import type {
   OrcamentoListItem,
   OrcamentoOperacaoInput,
   OrcamentoPresetCnc,
+  OrcamentoPresetHistoricoItem,
+  OrcamentoPresetRankingItem,
   OrcamentoPresetRecalibracao,
+  OrcamentoPresetSugestao,
   OrcamentoPdfSimulacao,
   OrcamentoSimulacao,
   ProdutoFinalCadastro,
@@ -120,6 +127,12 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
   const [presetNomeDraft, setPresetNomeDraft] = useState("");
   const [presetCodigoDraft, setPresetCodigoDraft] = useState("");
   const [presetDescricaoDraft, setPresetDescricaoDraft] = useState("");
+  const [presetHistorico, setPresetHistorico] = useState<OrcamentoPresetHistoricoItem[]>([]);
+  const [loadingPresetHistorico, setLoadingPresetHistorico] = useState(false);
+  const [presetRanking, setPresetRanking] = useState<OrcamentoPresetRankingItem[]>([]);
+  const [loadingPresetRanking, setLoadingPresetRanking] = useState(false);
+  const [presetSugestao, setPresetSugestao] = useState<OrcamentoPresetSugestao | null>(null);
+  const [lastAutoSuggestionKey, setLastAutoSuggestionKey] = useState("");
 
   const totalPages = Math.max(1, Math.ceil(total / 10));
 
@@ -200,6 +213,18 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       backendPresets.find((preset) => preset.id === Number(selectedBackendPresetId)) ?? null,
     [backendPresets, selectedBackendPresetId]
   );
+  const suggestionContextKey = useMemo(
+    () =>
+      [
+        clienteId || 0,
+        produtoId || 0,
+        pdfCentroId || 0,
+        presetMaterial?.nome || "",
+        pieceFamily?.nome || "",
+        pieceType || "",
+      ].join("|"),
+    [clienteId, produtoId, pdfCentroId, presetMaterial, pieceFamily, pieceType]
+  );
 
   useEffect(() => {
     if (!isActive) {
@@ -244,6 +269,49 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     }
     void loadBackendPresets();
   }, [isActive, role, clienteId, produtoId, backendPresetSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isActive || role === "operador") {
+      return;
+    }
+    void loadPresetRanking();
+  }, [isActive, role, clienteId, produtoId, pdfCentroId, presetMaterialId, pieceFamilyId, pieceType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedBackendPresetId || role === "operador") {
+      setPresetHistorico([]);
+      return;
+    }
+    void loadPresetHistorico(Number(selectedBackendPresetId));
+  }, [selectedBackendPresetId, role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isActive || role === "operador") {
+      return;
+    }
+    if (!produtoId) {
+      return;
+    }
+    if (loadingBackendPresets) {
+      return;
+    }
+    if (lastAutoSuggestionKey === suggestionContextKey) {
+      return;
+    }
+    void handleAutoSuggestPreset();
+  }, [
+    isActive,
+    role,
+    produtoId,
+    clienteId,
+    pdfCentroId,
+    pieceFamilyId,
+    presetMaterialId,
+    pieceType,
+    loadingBackendPresets,
+    suggestionContextKey,
+    lastAutoSuggestionKey,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!pieceFamily) {
@@ -338,6 +406,65 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     }
   }
 
+  async function loadPresetHistorico(presetId: number): Promise<void> {
+    setLoadingPresetHistorico(true);
+    try {
+      const response = await listOrcamentoPresetHistorico(role, presetId);
+      setPresetHistorico(response.items);
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    } finally {
+      setLoadingPresetHistorico(false);
+    }
+  }
+
+  async function loadPresetRanking(): Promise<void> {
+    setLoadingPresetRanking(true);
+    try {
+      const response = await listOrcamentoPresetsRanking(role, {
+        limit: 5,
+        clienteId: clienteId ? Number(clienteId) : undefined,
+        produtoFinalId: produtoId ? Number(produtoId) : undefined,
+        centroTrabalhoId: pdfCentroId ? Number(pdfCentroId) : undefined,
+        materialReferencia: presetMaterial?.nome,
+        familiaPeca: pieceFamily?.nome,
+        tipoPeca: pieceType,
+      });
+      setPresetRanking(response.items);
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    } finally {
+      setLoadingPresetRanking(false);
+    }
+  }
+
+  async function handleAutoSuggestPreset(): Promise<void> {
+    setLastAutoSuggestionKey(suggestionContextKey);
+    try {
+      const suggestion = await getOrcamentoPresetSugestao(role, {
+        clienteId: clienteId ? Number(clienteId) : undefined,
+        produtoFinalId: produtoId ? Number(produtoId) : undefined,
+        centroTrabalhoId: pdfCentroId ? Number(pdfCentroId) : undefined,
+        materialReferencia: presetMaterial?.nome,
+        familiaPeca: pieceFamily?.nome,
+        tipoPeca: pieceType,
+      });
+      setPresetSugestao(suggestion);
+      if (!suggestion.preset) {
+        return;
+      }
+      await handleApplyPresetWithTracking(suggestion.preset, "SUGESTAO_AUTOMATICA");
+      onSuccess(
+        `Sugestao automatica aplicada: ${suggestion.preset.nome} (score ${formatNumber(
+          suggestion.score_final,
+          2
+        )}).`
+      );
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    }
+  }
+
   function validateMainForm(): string | null {
     if (!produtoId) {
       return "Selecione o produto final.";
@@ -392,6 +519,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
         cliente_id: clienteId ? Number(clienteId) : undefined,
         produto_final_id: Number(produtoId),
         bom_id: bomId ? Number(bomId) : undefined,
+        preset_cnc_id: selectedBackendPreset ? Number(selectedBackendPreset.id) : undefined,
         quantidade,
         margem_lucro_pct: margemLucroPct.trim() || undefined,
         custo_indireto_fixo: custoIndiretoFixo,
@@ -862,6 +990,23 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     setPresetDescricaoDraft(preset.descricao ?? "");
   }
 
+  async function handleApplyPresetWithTracking(
+    preset: OrcamentoPresetCnc,
+    tipoEvento: "APLICACAO_MANUAL" | "RANKING_APLICADO" | "SUGESTAO_AUTOMATICA"
+  ): Promise<void> {
+    applyBackendPresetLocally(preset);
+    setSelectedBackendPresetId(preset.id);
+    try {
+      await registrarUsoOrcamentoPresetCnc(role, preset.id, {
+        tipo_evento: tipoEvento,
+        observacao: `Aplicacao de preset pela interface (${tipoEvento}).`,
+      });
+      await Promise.all([loadBackendPresets(), loadPresetRanking()]);
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    }
+  }
+
   async function handleSaveBackendPreset(createNew: boolean): Promise<void> {
     const nomePreset = presetNomeDraft.trim();
     if (!nomePreset) {
@@ -927,14 +1072,20 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
           onError("Selecione um preset salvo para atualizar.");
           return;
         }
-        savedPreset = await updateOrcamentoPresetCnc(role, selectedBackendPreset.id, commonPayload);
+        savedPreset = await updateOrcamentoPresetCnc(role, selectedBackendPreset.id, {
+          ...commonPayload,
+          motivo_versao: "Atualizacao via painel de orcamentos.",
+        });
         onSuccess(`Preset CNC ${savedPreset.nome} atualizado com sucesso.`);
       } else {
-        savedPreset = await createOrcamentoPresetCnc(role, commonPayload);
+        savedPreset = await createOrcamentoPresetCnc(role, {
+          ...commonPayload,
+          motivo_versao: "Criacao via painel de orcamentos.",
+        });
         setSelectedBackendPresetId(savedPreset.id);
         onSuccess(`Preset CNC ${savedPreset.nome} salvo com sucesso.`);
       }
-      await loadBackendPresets();
+      await Promise.all([loadBackendPresets(), loadPresetRanking()]);
       applyBackendPresetLocally(savedPreset);
     } catch (error) {
       onError(extractErrorMessage(error));
@@ -960,9 +1111,14 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
           centro_trabalho_id: selectedBackendPreset.centro_trabalho_id ?? undefined,
           produto_final_id: selectedBackendPreset.produto_final_id ?? undefined,
           suavizacao_alpha: "0.65",
+          motivo_versao: "Recalibracao automatica com base no MES.",
         }
       );
-      await loadBackendPresets();
+      await Promise.all([
+        loadBackendPresets(),
+        loadPresetRanking(),
+        loadPresetHistorico(selectedBackendPreset.id),
+      ]);
       onSuccess(
         `MES recalibrou ${response.preset_nome}: ciclo ${formatNumber(response.fator_ciclo_anterior, 3)} -> ${formatNumber(response.fator_ciclo_novo, 3)} (${response.amostras_utilizadas} amostras).`
       );
@@ -1277,7 +1433,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                       onError("Selecione um preset salvo para aplicar.");
                       return;
                     }
-                    applyBackendPresetLocally(selectedBackendPreset);
+                    void handleApplyPresetWithTracking(selectedBackendPreset, "APLICACAO_MANUAL");
                     onSuccess(`Preset ${selectedBackendPreset.nome} aplicado no formulario.`);
                   }}
                   disabled={submitting || !selectedBackendPreset}
@@ -1316,10 +1472,82 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
               </p>
               {selectedBackendPreset && (
                 <p className="mt-1 text-xs text-violet-100/85">
-                  Amostras MES: {selectedBackendPreset.amostras_mes} | Ultima calibracao:{" "}
-                  {formatDateTime(selectedBackendPreset.ultima_calibracao_at)}
+                  v{selectedBackendPreset.versao_atual} | Usos: {selectedBackendPreset.total_aplicacoes} |
+                  Orcamentos: {selectedBackendPreset.total_orcamentos} | Erro acumulado:{" "}
+                  {formatNumber(selectedBackendPreset.erro_absoluto_acumulado_pct, 2)}%
                 </p>
               )}
+              {selectedBackendPreset && (
+                <p className="mt-1 text-xs text-violet-100/85">
+                  Amostras MES: {selectedBackendPreset.amostras_mes} | Ultima calibracao:{" "}
+                  {formatDateTime(selectedBackendPreset.ultima_calibracao_at)} | Ultimo uso:{" "}
+                  {formatDateTime(selectedBackendPreset.ultima_aplicacao_at)}
+                </p>
+              )}
+              {presetSugestao?.preset && (
+                <p className="mt-1 text-xs text-violet-100/85">
+                  Sugestao automatica ativa: <strong>{presetSugestao.preset.nome}</strong> (score{" "}
+                  {formatNumber(presetSugestao.score_final, 2)}).
+                </p>
+              )}
+              <div className="mt-3 rounded border border-violet-900/40 bg-slate-950/50 p-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">
+                  Ranking de presets (uso + assertividade)
+                </p>
+                {loadingPresetRanking ? (
+                  <p className="mt-1 text-xs text-violet-100/80">Calculando ranking...</p>
+                ) : presetRanking.length === 0 ? (
+                  <p className="mt-1 text-xs text-violet-100/80">Sem dados de ranking neste contexto.</p>
+                ) : (
+                  <div className="mt-2 space-y-1">
+                    {presetRanking.slice(0, 3).map((item) => (
+                      <div
+                        key={item.preset.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 bg-slate-900/70 px-2 py-1"
+                      >
+                        <div className="text-xs text-slate-200">
+                          <p className="font-semibold">
+                            {item.preset.codigo} - {item.preset.nome}
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            Score {formatNumber(item.score_final, 2)} | Uso {formatNumber(item.score_uso, 1)} | Assertividade{" "}
+                            {formatNumber(item.score_assertividade, 1)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded border border-violet-700 px-2 py-1 text-xs text-violet-100 hover:bg-violet-900/30"
+                          onClick={() => {
+                            void handleApplyPresetWithTracking(item.preset, "RANKING_APLICADO");
+                            onSuccess(`Preset de ranking aplicado: ${item.preset.nome}.`);
+                          }}
+                        >
+                          Aplicar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="mt-3 rounded border border-violet-900/40 bg-slate-950/50 p-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">
+                  Historico de versoes do preset
+                </p>
+                {loadingPresetHistorico ? (
+                  <p className="mt-1 text-xs text-violet-100/80">Carregando historico...</p>
+                ) : selectedBackendPreset && presetHistorico.length === 0 ? (
+                  <p className="mt-1 text-xs text-violet-100/80">Sem historico para este preset.</p>
+                ) : (
+                  <ul className="mt-2 space-y-1 text-xs text-slate-300">
+                    {presetHistorico.slice(0, 4).map((item) => (
+                      <li key={item.id} className="rounded border border-slate-800 bg-slate-900/70 px-2 py-1">
+                        v{item.versao} - {item.acao} - {formatDateTime(item.created_at)}
+                        {item.motivo ? ` - ${item.motivo}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
             {presetMachine && presetMaterial && presetOperation && (
               <div className="mt-2 rounded border border-cyan-900/40 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">

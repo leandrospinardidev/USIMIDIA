@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from io import BytesIO
@@ -32,6 +32,7 @@ from modules.mes_apontamentos.infrastructure.models import ApontamentoProducaoMo
 from modules.orcamentos.infrastructure.models import (
     OrcamentoAnexoModel,
     OrcamentoModel,
+    OrcamentoPresetCncHistoricoModel,
     OrcamentoPresetCncModel,
     OrcamentoVersaoModel,
     OrcamentoVersaoOperacaoModel,
@@ -75,6 +76,7 @@ RE_DIM_X = re.compile(r"(\d{1,5}(?:[.,]\d+)?)\s*[xX]\s*(\d{1,5}(?:[.,]\d+)?)")
 RE_DIAMETRO = re.compile(r"(?:Ø|DIAMETRO|DIA)[\s:]*([0-9]{1,4}(?:[.,][0-9]+)?)")
 RE_H7 = re.compile(r"([0-9]{1,4}(?:[.,][0-9]+)?)\s*H[0-9]{1,2}")
 RE_QUANTIDADE = re.compile(r"(?:QTD|QTDE|QUANTIDADE)[\s:=]+([0-9]{1,4})")
+USO_EVENTOS_COM_ORCAMENTO = {"ORCAMENTO_CRIADO", "ORCAMENTO_APROVADO"}
 
 
 class OrcamentosService:
@@ -259,6 +261,13 @@ class OrcamentosService:
             moeda=self._normalize_moeda(payload.get("moeda", "BRL")),
             payload=payload,
         )
+        if payload.get("preset_cnc_id") is not None:
+            self._aplicar_registro_uso_preset(
+                preset_id=int(payload["preset_cnc_id"]),
+                tipo_evento="ORCAMENTO_CRIADO",
+                erro_previsao_pct=None,
+                observacao="Vinculo automatico ao criar orcamento.",
+            )
         self._commit_or_409("Falha ao criar orcamento.")
         return self.get_orcamento_detail(orcamento.id)
 
@@ -288,6 +297,13 @@ class OrcamentosService:
             moeda=self._normalize_moeda(payload.get("moeda", "BRL")),
             payload=sim_payload,
         )
+        if payload.get("preset_cnc_id") is not None:
+            self._aplicar_registro_uso_preset(
+                preset_id=int(payload["preset_cnc_id"]),
+                tipo_evento="ORCAMENTO_CRIADO",
+                erro_previsao_pct=None,
+                observacao=f"Vinculo automatico em nova versao {nova_versao}.",
+            )
         if payload.get("referencia_projeto") is not None:
             orcamento.referencia_projeto = payload.get("referencia_projeto")
         if payload.get("observacao") is not None:
@@ -628,6 +644,7 @@ class OrcamentosService:
             self._ensure_centro_exists(int(centro_trabalho_id))
 
         preset = OrcamentoPresetCncModel(
+            versao_atual=1,
             codigo=codigo,
             nome=str(payload["nome"]).strip(),
             descricao=payload.get("descricao"),
@@ -662,6 +679,12 @@ class OrcamentosService:
         self._validate_non_negative("margem_lucro_pct", Decimal(preset.margem_lucro_pct))
         self._validate_non_negative("custo_indireto_pct", Decimal(preset.custo_indireto_pct))
         self.db.add(preset)
+        self.db.flush()
+        self._registrar_historico_preset(
+            preset=preset,
+            acao="CRIACAO",
+            motivo=payload.get("motivo_versao") or "Criacao inicial de preset CNC.",
+        )
         self._commit_or_409("Falha ao criar preset CNC.")
         self.db.refresh(preset)
         return self._preset_to_payload(preset)
@@ -725,7 +748,13 @@ class OrcamentosService:
         if "heuristicas" in payload:
             preset.heuristicas_json = self._json_safe(payload.get("heuristicas", {}))
 
+        preset.versao_atual = int(preset.versao_atual or 1) + 1
         preset.updated_at = datetime.now(UTC)
+        self._registrar_historico_preset(
+            preset=preset,
+            acao="ATUALIZACAO",
+            motivo=payload.get("motivo_versao") or "Atualizacao manual de preset CNC.",
+        )
         self._commit_or_409("Falha ao atualizar preset CNC.")
         self.db.refresh(preset)
         return self._preset_to_payload(preset)
@@ -824,7 +853,14 @@ class OrcamentosService:
         preset.tempo_planejado_min_total = tempo_planejado_total.quantize(Decimal("0.01"))
         preset.tempo_real_min_total = tempo_real_total.quantize(Decimal("0.01"))
         preset.ultima_calibracao_at = datetime.now(UTC)
+        preset.versao_atual = int(preset.versao_atual or 1) + 1
         preset.updated_at = datetime.now(UTC)
+        self._registrar_historico_preset(
+            preset=preset,
+            acao="RECALIBRACAO",
+            motivo=payload.get("motivo_versao")
+            or f"Recalibrado por MES com janela de {janela_dias} dias.",
+        )
 
         self._commit_or_409("Falha ao recalibrar preset CNC com MES.")
         self.db.refresh(preset)
@@ -844,6 +880,165 @@ class OrcamentosService:
             "tempo_real_min_total": Decimal(preset.tempo_real_min_total),
             "desvio_medio_pct": desvio_medio_pct.quantize(Decimal("0.01")),
             "ultima_calibracao_at": preset.ultima_calibracao_at,
+        }
+
+    def list_preset_historico(
+        self,
+        *,
+        preset_id: int,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        self._get_preset_or_404(preset_id)
+        stmt = select(OrcamentoPresetCncHistoricoModel).where(
+            OrcamentoPresetCncHistoricoModel.preset_id == preset_id
+        )
+        total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+        rows = list(
+            self.db.scalars(
+                stmt.order_by(
+                    OrcamentoPresetCncHistoricoModel.versao.desc(),
+                    OrcamentoPresetCncHistoricoModel.id.desc(),
+                )
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).all()
+        )
+        return [
+            {
+                "id": row.id,
+                "preset_id": row.preset_id,
+                "versao": row.versao,
+                "acao": row.acao,
+                "motivo": row.motivo,
+                "snapshot": row.snapshot_json or {},
+                "metricas": row.metricas_json or {},
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ], int(total)
+
+    def registrar_uso_preset_cnc(
+        self,
+        *,
+        preset_id: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        preset = self._aplicar_registro_uso_preset(
+            preset_id=preset_id,
+            tipo_evento=payload.get("tipo_evento", "APLICACAO_MANUAL"),
+            erro_previsao_pct=payload.get("erro_previsao_pct"),
+            observacao=payload.get("observacao"),
+        )
+        self._commit_or_409("Falha ao registrar uso do preset CNC.")
+        self.db.refresh(preset)
+        return {
+            "preset_id": preset.id,
+            "versao_atual": int(preset.versao_atual),
+            "total_aplicacoes": int(preset.total_aplicacoes),
+            "total_orcamentos": int(preset.total_orcamentos),
+            "erro_absoluto_acumulado_pct": Decimal(preset.erro_absoluto_acumulado_pct),
+            "ultima_aplicacao_at": preset.ultima_aplicacao_at,
+        }
+
+    def list_presets_cnc_ranking(
+        self,
+        *,
+        limit: int,
+        cliente_id: int | None = None,
+        produto_final_id: int | None = None,
+        centro_trabalho_id: int | None = None,
+        material_referencia: str | None = None,
+        familia_peca: str | None = None,
+        tipo_peca: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if limit < 1 or limit > 100:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="limit deve estar entre 1 e 100.",
+            )
+        if cliente_id is not None:
+            self._ensure_cliente_exists(cliente_id)
+        if produto_final_id is not None:
+            self._ensure_produto_exists(produto_final_id)
+        if centro_trabalho_id is not None:
+            self._ensure_centro_exists(centro_trabalho_id)
+
+        stmt = select(OrcamentoPresetCncModel).where(OrcamentoPresetCncModel.ativo.is_(True))
+        if cliente_id is not None:
+            stmt = stmt.where(
+                or_(
+                    OrcamentoPresetCncModel.cliente_id.is_(None),
+                    OrcamentoPresetCncModel.cliente_id == cliente_id,
+                )
+            )
+        if produto_final_id is not None:
+            stmt = stmt.where(
+                or_(
+                    OrcamentoPresetCncModel.produto_final_id.is_(None),
+                    OrcamentoPresetCncModel.produto_final_id == produto_final_id,
+                )
+            )
+
+        presets = list(self.db.scalars(stmt).all())
+        ranking: list[dict[str, Any]] = []
+        for preset in presets:
+            score = self._calcular_scores_preset(
+                preset=preset,
+                cliente_id=cliente_id,
+                produto_final_id=produto_final_id,
+                centro_trabalho_id=centro_trabalho_id,
+                material_referencia=material_referencia,
+                familia_peca=familia_peca,
+                tipo_peca=tipo_peca,
+            )
+            ranking.append(
+                {
+                    "preset": self._preset_to_payload(preset),
+                    "score_uso": score["score_uso"],
+                    "score_assertividade": score["score_assertividade"],
+                    "score_contexto": score["score_contexto"],
+                    "score_final": score["score_final"],
+                    "motivos": score["motivos"],
+                }
+            )
+
+        ranking.sort(
+            key=lambda row: (row["score_final"], row["preset"]["updated_at"], row["preset"]["id"]),
+            reverse=True,
+        )
+        return ranking[:limit]
+
+    def suggest_preset_cnc(
+        self,
+        *,
+        cliente_id: int | None = None,
+        produto_final_id: int | None = None,
+        centro_trabalho_id: int | None = None,
+        material_referencia: str | None = None,
+        familia_peca: str | None = None,
+        tipo_peca: str | None = None,
+    ) -> dict[str, Any]:
+        ranked = self.list_presets_cnc_ranking(
+            limit=1,
+            cliente_id=cliente_id,
+            produto_final_id=produto_final_id,
+            centro_trabalho_id=centro_trabalho_id,
+            material_referencia=material_referencia,
+            familia_peca=familia_peca,
+            tipo_peca=tipo_peca,
+        )
+        if not ranked:
+            return {
+                "preset": None,
+                "score_final": None,
+                "motivos": ["Nenhum preset ativo encontrado para o contexto informado."],
+            }
+        top = ranked[0]
+        return {
+            "preset": top["preset"],
+            "score_final": top["score_final"],
+            "motivos": top["motivos"],
         }
 
     def _create_versao(
@@ -1072,6 +1267,7 @@ class OrcamentosService:
             )
         return {
             "id": preset.id,
+            "versao_atual": int(preset.versao_atual or 1),
             "codigo": preset.codigo,
             "nome": preset.nome,
             "descricao": preset.descricao,
@@ -1095,12 +1291,218 @@ class OrcamentosService:
             "operacoes_template": operacoes_template,
             "heuristicas": preset.heuristicas_json or {},
             "amostras_mes": int(preset.amostras_mes or 0),
+            "total_aplicacoes": int(preset.total_aplicacoes or 0),
+            "total_orcamentos": int(preset.total_orcamentos or 0),
+            "erro_absoluto_acumulado_pct": Decimal(preset.erro_absoluto_acumulado_pct or 0),
             "tempo_planejado_min_total": preset.tempo_planejado_min_total,
             "tempo_real_min_total": preset.tempo_real_min_total,
             "ultima_calibracao_at": preset.ultima_calibracao_at,
+            "ultima_aplicacao_at": preset.ultima_aplicacao_at,
             "created_at": preset.created_at,
             "updated_at": preset.updated_at,
         }
+
+    def _registrar_historico_preset(
+        self,
+        *,
+        preset: OrcamentoPresetCncModel,
+        acao: str,
+        motivo: str | None,
+    ) -> None:
+        motivo_limpo = str(motivo).strip() if motivo is not None else None
+        if motivo_limpo == "":
+            motivo_limpo = None
+        self.db.add(
+            OrcamentoPresetCncHistoricoModel(
+                preset_id=preset.id,
+                versao=int(preset.versao_atual or 1),
+                acao=acao,
+                motivo=motivo_limpo,
+                snapshot_json=self._json_safe(self._snapshot_preset(preset)),
+                metricas_json=self._json_safe(self._metricas_preset(preset)),
+            )
+        )
+
+    def _snapshot_preset(self, preset: OrcamentoPresetCncModel) -> dict[str, Any]:
+        return {
+            "codigo": preset.codigo,
+            "nome": preset.nome,
+            "descricao": preset.descricao,
+            "ativo": bool(preset.ativo),
+            "cliente_id": preset.cliente_id,
+            "produto_final_id": preset.produto_final_id,
+            "centro_trabalho_id": preset.centro_trabalho_id,
+            "fabricante_referencia": preset.fabricante_referencia,
+            "linha_maquina_referencia": preset.linha_maquina_referencia,
+            "perfil_maquina": preset.perfil_maquina,
+            "familia_peca": preset.familia_peca,
+            "tipo_peca": preset.tipo_peca,
+            "material_referencia": preset.material_referencia,
+            "operacao_principal": preset.operacao_principal,
+            "diametro_referencia_mm": preset.diametro_referencia_mm,
+            "comprimento_referencia_mm": preset.comprimento_referencia_mm,
+            "fator_ciclo": preset.fator_ciclo,
+            "fator_setup": preset.fator_setup,
+            "margem_lucro_pct": preset.margem_lucro_pct,
+            "custo_indireto_pct": preset.custo_indireto_pct,
+            "operacoes_template": preset.operacoes_template_json or [],
+            "heuristicas": preset.heuristicas_json or {},
+        }
+
+    def _metricas_preset(self, preset: OrcamentoPresetCncModel) -> dict[str, Any]:
+        return {
+            "versao_atual": int(preset.versao_atual or 1),
+            "amostras_mes": int(preset.amostras_mes or 0),
+            "total_aplicacoes": int(preset.total_aplicacoes or 0),
+            "total_orcamentos": int(preset.total_orcamentos or 0),
+            "erro_absoluto_acumulado_pct": Decimal(preset.erro_absoluto_acumulado_pct or 0),
+            "tempo_planejado_min_total": Decimal(preset.tempo_planejado_min_total or 0),
+            "tempo_real_min_total": Decimal(preset.tempo_real_min_total or 0),
+            "ultima_calibracao_at": preset.ultima_calibracao_at,
+            "ultima_aplicacao_at": preset.ultima_aplicacao_at,
+        }
+
+    def _aplicar_registro_uso_preset(
+        self,
+        *,
+        preset_id: int,
+        tipo_evento: Any,
+        erro_previsao_pct: Any,
+        observacao: str | None,
+    ) -> OrcamentoPresetCncModel:
+        preset = self._get_preset_or_404(preset_id)
+        tipo_evento_norm = str(tipo_evento or "APLICACAO_MANUAL").strip().upper()
+        erro_decimal: Decimal | None = None
+        if erro_previsao_pct is not None:
+            erro_decimal = self._to_decimal(erro_previsao_pct, "erro_previsao_pct")
+            self._validate_non_negative("erro_previsao_pct", erro_decimal)
+
+        preset.total_aplicacoes = int(preset.total_aplicacoes or 0) + 1
+        if tipo_evento_norm in USO_EVENTOS_COM_ORCAMENTO:
+            preset.total_orcamentos = int(preset.total_orcamentos or 0) + 1
+        if erro_decimal is not None:
+            acumulado = Decimal(preset.erro_absoluto_acumulado_pct or 0) + abs(erro_decimal)
+            preset.erro_absoluto_acumulado_pct = acumulado.quantize(Decimal("0.0001"))
+
+        if observacao:
+            heuristicas = dict(preset.heuristicas_json or {})
+            historico_uso = list(heuristicas.get("historico_uso", []))
+            historico_uso.append(
+                {
+                    "tipo_evento": tipo_evento_norm,
+                    "observacao": str(observacao)[:300],
+                    "at": datetime.now(UTC).isoformat(),
+                }
+            )
+            heuristicas["historico_uso"] = historico_uso[-5:]
+            preset.heuristicas_json = self._json_safe(heuristicas)
+
+        preset.ultima_aplicacao_at = datetime.now(UTC)
+        preset.updated_at = datetime.now(UTC)
+        return preset
+
+    def _calcular_scores_preset(
+        self,
+        *,
+        preset: OrcamentoPresetCncModel,
+        cliente_id: int | None,
+        produto_final_id: int | None,
+        centro_trabalho_id: int | None,
+        material_referencia: str | None,
+        familia_peca: str | None,
+        tipo_peca: str | None,
+    ) -> dict[str, Any]:
+        motivos: list[str] = []
+        total_aplicacoes = Decimal(int(preset.total_aplicacoes or 0))
+        total_orcamentos = Decimal(int(preset.total_orcamentos or 0))
+        score_uso = min(
+            Decimal("30"),
+            (total_aplicacoes * Decimal("1.5")) + (total_orcamentos * Decimal("2.5")),
+        )
+        if total_aplicacoes > 0:
+            motivos.append(
+                "Uso acumulado: "
+                f"{int(total_aplicacoes)} aplicacoes, "
+                f"{int(total_orcamentos)} orcamentos."
+            )
+        else:
+            motivos.append("Preset ainda sem uso real registrado.")
+
+        score_assertividade = Decimal("18")
+        tempo_planejado = Decimal(preset.tempo_planejado_min_total or 0)
+        tempo_real = Decimal(preset.tempo_real_min_total or 0)
+        amostras_mes = int(preset.amostras_mes or 0)
+        if amostras_mes > 0 and tempo_planejado > 0 and tempo_real > 0:
+            desvio_pct = abs((tempo_real - tempo_planejado) / tempo_planejado) * Decimal("100")
+            score_assertividade = max(Decimal("0"), Decimal("40") - desvio_pct)
+            motivos.append(
+                f"Assertividade MES com {amostras_mes} amostras "
+                f"(desvio medio {desvio_pct.quantize(Decimal('0.01'))}%)."
+            )
+        else:
+            motivos.append("Sem base MES suficiente; assertividade neutra.")
+
+        erro_abs = Decimal(preset.erro_absoluto_acumulado_pct or 0)
+        if total_orcamentos > 0 and erro_abs > 0:
+            erro_medio = erro_abs / total_orcamentos
+            penalidade = min(Decimal("15"), erro_medio / Decimal("2"))
+            score_assertividade = max(Decimal("0"), score_assertividade - penalidade)
+            motivos.append(
+                f"Penalidade de erro historico medio {erro_medio.quantize(Decimal('0.01'))}%."
+            )
+
+        score_contexto = Decimal("0")
+        if cliente_id is not None:
+            if preset.cliente_id == cliente_id:
+                score_contexto += Decimal("12")
+                motivos.append("Match exato por cliente.")
+            elif preset.cliente_id is None:
+                score_contexto += Decimal("4")
+        elif preset.cliente_id is None:
+            score_contexto += Decimal("2")
+
+        if produto_final_id is not None:
+            if preset.produto_final_id == produto_final_id:
+                score_contexto += Decimal("12")
+                motivos.append("Match exato por produto.")
+            elif preset.produto_final_id is None:
+                score_contexto += Decimal("4")
+        elif preset.produto_final_id is None:
+            score_contexto += Decimal("2")
+
+        if centro_trabalho_id is not None:
+            if preset.centro_trabalho_id == centro_trabalho_id:
+                score_contexto += Decimal("4")
+                motivos.append("Centro de trabalho alinhado.")
+            elif preset.centro_trabalho_id is None:
+                score_contexto += Decimal("1")
+
+        if self._same_lookup_value(preset.material_referencia, material_referencia):
+            score_contexto += Decimal("2")
+            motivos.append("Material de referencia compatível.")
+        if self._same_lookup_value(preset.familia_peca, familia_peca):
+            score_contexto += Decimal("2")
+            motivos.append("Familia de peca compatível.")
+        if self._same_lookup_value(preset.tipo_peca, tipo_peca):
+            score_contexto += Decimal("1")
+            motivos.append("Tipo de peca compatível.")
+
+        if score_contexto > Decimal("30"):
+            score_contexto = Decimal("30")
+
+        score_final = (score_uso + score_assertividade + score_contexto).quantize(Decimal("0.01"))
+        return {
+            "score_uso": score_uso.quantize(Decimal("0.01")),
+            "score_assertividade": score_assertividade.quantize(Decimal("0.01")),
+            "score_contexto": score_contexto.quantize(Decimal("0.01")),
+            "score_final": score_final,
+            "motivos": motivos[:6],
+        }
+
+    def _same_lookup_value(self, left: str | None, right: str | None) -> bool:
+        if not left or not right:
+            return False
+        return self._normalize_for_search(left) == self._normalize_for_search(right)
 
     def _extract_mes_operation_metrics(
         self,
@@ -1409,6 +1811,8 @@ class OrcamentosService:
     def _json_safe(self, value: Any) -> Any:
         if isinstance(value, Decimal):
             return str(value)
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
         if isinstance(value, Enum):
             return value.value
         if isinstance(value, dict):
@@ -1434,6 +1838,8 @@ class OrcamentosService:
                 detail = "Codigo de orcamento ja cadastrado."
             if "orcamento_presets_cnc_codigo_key" in str(exc.orig):
                 detail = "Codigo de preset CNC ja cadastrado."
+            if "uq_orc_preset_hist_versao" in str(exc.orig):
+                detail = "Historico de versao do preset CNC em conflito."
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=detail,

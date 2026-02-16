@@ -19,8 +19,13 @@ from modules.orcamentos.presentation.schemas import (
     OrcamentoPresetCncListResponse,
     OrcamentoPresetCncResponse,
     OrcamentoPresetCncUpdate,
+    OrcamentoPresetHistoricoListResponse,
+    OrcamentoPresetRankingResponse,
     OrcamentoPresetRecalibrarRequest,
     OrcamentoPresetRecalibrarResponse,
+    OrcamentoPresetRegistrarUsoRequest,
+    OrcamentoPresetRegistrarUsoResponse,
+    OrcamentoPresetSugestaoResponse,
     OrcamentoResponse,
     OrcamentoSimulacaoResponse,
     OrcamentoStatus,
@@ -166,6 +171,51 @@ def create_preset_cnc(_: WritePermission, db: DbSession, payload: OrcamentoPrese
     return _service(db).create_preset_cnc(payload.model_dump(exclude_unset=True))
 
 
+@router.get("/presets-cnc/ranking", response_model=OrcamentoPresetRankingResponse)
+def list_presets_cnc_ranking(
+    _: ReadPermission,
+    db: DbSession,
+    limit: int = Query(default=8, ge=1, le=100),
+    cliente_id: int | None = Query(default=None, gt=0),
+    produto_final_id: int | None = Query(default=None, gt=0),
+    centro_trabalho_id: int | None = Query(default=None, gt=0),
+    material_referencia: str | None = Query(default=None, max_length=80),
+    familia_peca: str | None = Query(default=None, max_length=80),
+    tipo_peca: str | None = Query(default=None, max_length=20),
+):
+    items = _service(db).list_presets_cnc_ranking(
+        limit=limit,
+        cliente_id=cliente_id,
+        produto_final_id=produto_final_id,
+        centro_trabalho_id=centro_trabalho_id,
+        material_referencia=material_referencia,
+        familia_peca=familia_peca,
+        tipo_peca=tipo_peca,
+    )
+    return {"items": items}
+
+
+@router.get("/presets-cnc/sugestao", response_model=OrcamentoPresetSugestaoResponse)
+def suggest_preset_cnc(
+    _: ReadPermission,
+    db: DbSession,
+    cliente_id: int | None = Query(default=None, gt=0),
+    produto_final_id: int | None = Query(default=None, gt=0),
+    centro_trabalho_id: int | None = Query(default=None, gt=0),
+    material_referencia: str | None = Query(default=None, max_length=80),
+    familia_peca: str | None = Query(default=None, max_length=80),
+    tipo_peca: str | None = Query(default=None, max_length=20),
+):
+    return _service(db).suggest_preset_cnc(
+        cliente_id=cliente_id,
+        produto_final_id=produto_final_id,
+        centro_trabalho_id=centro_trabalho_id,
+        material_referencia=material_referencia,
+        familia_peca=familia_peca,
+        tipo_peca=tipo_peca,
+    )
+
+
 @router.patch("/presets-cnc/{preset_id}", response_model=OrcamentoPresetCncResponse)
 def update_preset_cnc(
     _: WritePermission,
@@ -193,6 +243,41 @@ def recalibrar_preset_cnc(
         preset_id=preset_id,
         payload=payload.model_dump(exclude_unset=True),
     )
+
+
+@router.post(
+    "/presets-cnc/{preset_id}/registrar-uso",
+    response_model=OrcamentoPresetRegistrarUsoResponse,
+)
+def registrar_uso_preset_cnc(
+    _: WritePermission,
+    db: DbSession,
+    preset_id: int,
+    payload: OrcamentoPresetRegistrarUsoRequest,
+):
+    return _service(db).registrar_uso_preset_cnc(
+        preset_id=preset_id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
+
+
+@router.get(
+    "/presets-cnc/{preset_id}/historico",
+    response_model=OrcamentoPresetHistoricoListResponse,
+)
+def list_preset_historico(
+    _: ReadPermission,
+    db: DbSession,
+    preset_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+) -> dict[str, Any]:
+    items, total = _service(db).list_preset_historico(
+        preset_id=preset_id,
+        page=page,
+        page_size=page_size,
+    )
+    return _paginated_response(items, page=page, page_size=page_size, total=total)
 
 
 @router.get("/{orcamento_id}", response_model=OrcamentoResponse)
