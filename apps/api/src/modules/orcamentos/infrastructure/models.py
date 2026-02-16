@@ -115,7 +115,12 @@ class OrcamentoVersaoModel(Base):
     custo_maquina_total: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     custo_indireto_total: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     preco_venda: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
-    moeda: Mapped[str] = mapped_column(String(10), nullable=False, default="BRL", server_default="BRL")
+    moeda: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="BRL",
+        server_default="BRL",
+    )
     detalhes_json: Mapped[dict] = mapped_column(
         JsonType,
         nullable=False,

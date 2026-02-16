@@ -130,7 +130,10 @@ class OrcamentosService:
             "produto_final_id": orcamento.produto_final_id,
             **payload,
         }
-        if "produto_final_id" in payload and int(payload["produto_final_id"]) != orcamento.produto_final_id:
+        if (
+            "produto_final_id" in payload
+            and int(payload["produto_final_id"]) != orcamento.produto_final_id
+        ):
             raise HTTPException(
                 status_code=HTTP_422,
                 detail="produto_final_id da versao deve ser igual ao do orcamento.",
@@ -484,7 +487,9 @@ class OrcamentosService:
         return f"ORC-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')[:17]}"
 
     def _ensure_codigo_orcamento_unique(self, codigo: str) -> None:
-        existing_id = self.db.scalar(select(OrcamentoModel.id).where(OrcamentoModel.codigo == codigo))
+        existing_id = self.db.scalar(
+            select(OrcamentoModel.id).where(OrcamentoModel.codigo == codigo)
+        )
         if existing_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
