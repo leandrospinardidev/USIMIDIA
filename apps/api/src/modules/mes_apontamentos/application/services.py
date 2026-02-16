@@ -30,7 +30,12 @@ class MesApontamentosService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def registrar_evento(self, *, ordem_operacao_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    def registrar_evento(
+        self,
+        *,
+        ordem_operacao_id: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
         operacao = self._get_operacao_or_404(ordem_operacao_id)
         ordem = self._get_ordem_or_404(operacao.ordem_id)
 
@@ -48,9 +53,16 @@ class MesApontamentosService:
                 detail=f"Evento {evento} invalido para operacao em status {operacao.status}.",
             )
 
-        data_hora_evento = self._normalize_datetime(payload.get("data_hora_evento") or datetime.now(UTC))
+        data_hora_evento = self._normalize_datetime(
+            payload.get("data_hora_evento") or datetime.now(UTC)
+        )
         last_event = self._last_event(ordem_operacao_id)
-        if last_event is not None and data_hora_evento < last_event.data_hora_evento:
+        if last_event is not None:
+            last_event_at = self._normalize_datetime(last_event.data_hora_evento)
+        else:
+            last_event_at = None
+
+        if last_event_at is not None and data_hora_evento < last_event_at:
             raise HTTPException(
                 status_code=HTTP_422,
                 detail="data_hora_evento nao pode ser menor que o ultimo evento.",
@@ -73,6 +85,7 @@ class MesApontamentosService:
         self.db.add(apontamento)
 
         self._apply_operacao_status_from_event(operacao=operacao, evento=evento)
+        self.db.flush()
         if quantidade_produzida > 0:
             ordem.quantidade_produzida = Decimal(ordem.quantidade_produzida) + quantidade_produzida
 
@@ -98,7 +111,10 @@ class MesApontamentosService:
         )
         total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
         stmt = (
-            stmt.order_by(ApontamentoProducaoModel.data_hora_evento.desc(), ApontamentoProducaoModel.id.desc())
+            stmt.order_by(
+                ApontamentoProducaoModel.data_hora_evento.desc(),
+                ApontamentoProducaoModel.id.desc(),
+            )
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -108,7 +124,12 @@ class MesApontamentosService:
         ]
         return items, int(total)
 
-    def registrar_refugo(self, *, ordem_operacao_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    def registrar_refugo(
+        self,
+        *,
+        ordem_operacao_id: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
         operacao = self._get_operacao_or_404(ordem_operacao_id)
         ordem = self._get_ordem_or_404(operacao.ordem_id)
 
@@ -145,14 +166,19 @@ class MesApontamentosService:
         operacao = self._get_operacao_or_404(ordem_operacao_id)
         ordem = self._get_ordem_or_404(operacao.ordem_id)
 
-        stmt = select(RefugoProducaoModel).where(RefugoProducaoModel.ordem_operacao_id == ordem_operacao_id)
+        stmt = select(RefugoProducaoModel).where(
+            RefugoProducaoModel.ordem_operacao_id == ordem_operacao_id
+        )
         total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
         stmt = (
             stmt.order_by(RefugoProducaoModel.data_hora.desc(), RefugoProducaoModel.id.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
-        items = [self._serialize_refugo(refugo=item, ordem=ordem) for item in self.db.scalars(stmt).all()]
+        items = [
+            self._serialize_refugo(refugo=item, ordem=ordem)
+            for item in self.db.scalars(stmt).all()
+        ]
         return items, int(total)
 
     def resumo_tempo_operacao(self, *, ordem_operacao_id: int) -> dict[str, Any]:
@@ -163,7 +189,10 @@ class MesApontamentosService:
             self.db.scalars(
                 select(ApontamentoProducaoModel)
                 .where(ApontamentoProducaoModel.ordem_operacao_id == ordem_operacao_id)
-                .order_by(ApontamentoProducaoModel.data_hora_evento.asc(), ApontamentoProducaoModel.id.asc())
+                .order_by(
+                    ApontamentoProducaoModel.data_hora_evento.asc(),
+                    ApontamentoProducaoModel.id.asc(),
+                )
             ).all()
         )
         refugos_total = self.db.scalar(
@@ -174,17 +203,19 @@ class MesApontamentosService:
 
         total_seconds = Decimal("0")
         active_since: datetime | None = None
+        now_utc = datetime.now(UTC)
         for evento in eventos:
+            event_at = self._normalize_datetime(evento.data_hora_evento)
             if evento.evento in {"START", "RETOMADA"}:
-                active_since = evento.data_hora_evento
+                active_since = event_at
             elif evento.evento in {"PAUSA", "STOP"} and active_since is not None:
-                delta = Decimal((evento.data_hora_evento - active_since).total_seconds())
+                delta = Decimal((event_at - active_since).total_seconds())
                 if delta > 0:
                     total_seconds += delta
                 active_since = None
 
         if active_since is not None:
-            delta = Decimal((datetime.now(UTC) - active_since).total_seconds())
+            delta = Decimal((now_utc - active_since).total_seconds())
             if delta > 0:
                 total_seconds += delta
 
@@ -208,7 +239,12 @@ class MesApontamentosService:
             "quantidade_refugada_total": Decimal(refugos_total),
         }
 
-    def _apply_operacao_status_from_event(self, *, operacao: OrdemOperacaoModel, evento: str) -> None:
+    def _apply_operacao_status_from_event(
+        self,
+        *,
+        operacao: OrdemOperacaoModel,
+        evento: str,
+    ) -> None:
         if evento in {"START", "RETOMADA"}:
             operacao.status = "EM_EXECUCAO"
         elif evento == "PAUSA":
@@ -246,7 +282,10 @@ class MesApontamentosService:
         return self.db.scalar(
             select(ApontamentoProducaoModel)
             .where(ApontamentoProducaoModel.ordem_operacao_id == ordem_operacao_id)
-            .order_by(ApontamentoProducaoModel.data_hora_evento.desc(), ApontamentoProducaoModel.id.desc())
+            .order_by(
+                ApontamentoProducaoModel.data_hora_evento.desc(),
+                ApontamentoProducaoModel.id.desc(),
+            )
             .limit(1)
         )
 

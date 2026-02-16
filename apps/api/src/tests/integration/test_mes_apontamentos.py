@@ -117,7 +117,11 @@ def _create_op_with_one_operation(client: TestClient, suffix: str) -> tuple[int,
             "bom_id": bom["id"],
             "quantidade_planejada": "10",
             "operacoes": [
-                {"centro_trabalho_id": centro["id"], "setup_planejado_min": "10", "ciclo_planejado_min": "2"}
+                {
+                    "centro_trabalho_id": centro["id"],
+                    "setup_planejado_min": "10",
+                    "ciclo_planejado_min": "2",
+                }
             ],
         },
     )
