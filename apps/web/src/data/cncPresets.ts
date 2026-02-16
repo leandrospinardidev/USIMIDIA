@@ -35,6 +35,33 @@ export interface CncOperationPreset {
   margem_lucro_pct: number;
 }
 
+export type CncPieceType = "EIXO" | "FLANGE" | "BLOCO";
+
+export interface CncAutoStrategyInput {
+  machinePreset: CncMachinePreset;
+  materialPreset: CncMaterialPreset;
+  pieceType: CncPieceType;
+  diametroMm?: number | null;
+  comprimentoMm?: number | null;
+}
+
+export interface CncAutoStrategyOperation {
+  operationPresetId: CncOperationPreset["id"];
+  operationNome: string;
+  descricao: string;
+  cicloMin: string;
+  setupMin: string;
+}
+
+export interface CncAutoStrategyResult {
+  pieceType: CncPieceType;
+  dimensionFactor: number;
+  furosEstimados: number;
+  suggestedMarginPct: number;
+  suggestedIndirectPct: number;
+  operations: CncAutoStrategyOperation[];
+}
+
 export const CNC_MACHINE_PRESETS: readonly CncMachinePreset[] = [
   {
     id: "vmc_8k_bt40",
@@ -149,6 +176,120 @@ export const CNC_OPERATION_PRESETS: readonly CncOperationPreset[] = [
     margem_lucro_pct: 24,
   },
 ];
+
+const AUTO_STRATEGY_OPERATION_IDS: readonly CncOperationPreset["id"][] = [
+  "desbaste",
+  "acabamento",
+  "furacao",
+];
+
+function findOperationPreset(id: CncOperationPreset["id"]): CncOperationPreset {
+  const found = CNC_OPERATION_PRESETS.find((item) => item.id === id);
+  if (!found) {
+    throw new Error(`Preset de operacao nao encontrado: ${id}`);
+  }
+  return found;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function toPositiveNumber(value: number | null | undefined, fallback: number): number {
+  if (!Number.isFinite(value) || value === null || value === undefined || value <= 0) {
+    return fallback;
+  }
+  return Number(value);
+}
+
+function getPieceFactor(pieceType: CncPieceType): number {
+  switch (pieceType) {
+    case "EIXO":
+      return 1.04;
+    case "FLANGE":
+      return 0.98;
+    case "BLOCO":
+      return 1.12;
+    default:
+      return 1;
+  }
+}
+
+function calculateDimensionFactor(
+  pieceType: CncPieceType,
+  diametroMm?: number | null,
+  comprimentoMm?: number | null
+): number {
+  const d = toPositiveNumber(diametroMm, 60);
+  const l = toPositiveNumber(comprimentoMm, 120);
+
+  if (pieceType === "EIXO") {
+    return clamp(0.7 + d / 300 + l / 700, 0.7, 2.2);
+  }
+  if (pieceType === "FLANGE") {
+    return clamp(0.75 + d / 260 + l / 400, 0.7, 2.1);
+  }
+  return clamp(0.8 + d / 220 + l / 350, 0.75, 2.4);
+}
+
+function estimateHoles(pieceType: CncPieceType, diametroMm?: number | null): number {
+  const d = toPositiveNumber(diametroMm, 60);
+  if (pieceType === "FLANGE") {
+    return clamp(Math.round(d / 22), 4, 16);
+  }
+  if (pieceType === "BLOCO") {
+    return clamp(Math.round(d / 35), 2, 10);
+  }
+  return clamp(Math.round(d / 55), 1, 6);
+}
+
+export function buildAutoStrategyPlan(input: CncAutoStrategyInput): CncAutoStrategyResult {
+  const operations = AUTO_STRATEGY_OPERATION_IDS.map(findOperationPreset);
+  const pieceFactor = getPieceFactor(input.pieceType);
+  const dimensionFactor = calculateDimensionFactor(
+    input.pieceType,
+    input.diametroMm,
+    input.comprimentoMm
+  );
+  const furosEstimados = estimateHoles(input.pieceType, input.diametroMm);
+  const setupPieceExtra = input.pieceType === "EIXO" ? 2 : input.pieceType === "BLOCO" ? 4 : 3;
+
+  const computedOperations = operations.map((operation) => {
+    const furacaoFactor = operation.id === "furacao" ? 1 + (furosEstimados - 1) * 0.08 : 1;
+    const cycle =
+      operation.base_cycle_min *
+      input.machinePreset.fator_tempo *
+      input.materialPreset.fator_tempo *
+      operation.fator_operacao *
+      pieceFactor *
+      dimensionFactor *
+      furacaoFactor;
+    const setup = Math.max(
+      input.machinePreset.setup_base_min,
+      input.machinePreset.setup_base_min * 0.65 + setupPieceExtra + operation.setup_adicional_min
+    );
+    return {
+      operationPresetId: operation.id,
+      operationNome: operation.nome,
+      descricao: `${operation.nome} automatico (${input.pieceType.toLowerCase()})`,
+      cicloMin: Math.max(0.4, cycle).toFixed(2),
+      setupMin: Math.max(1, setup).toFixed(2),
+    } satisfies CncAutoStrategyOperation;
+  });
+
+  return {
+    pieceType: input.pieceType,
+    dimensionFactor,
+    furosEstimados,
+    suggestedMarginPct: Math.max(
+      input.machinePreset.margem_lucro_pct,
+      input.materialPreset.margem_lucro_pct,
+      24
+    ),
+    suggestedIndirectPct: Math.max(input.machinePreset.custo_indireto_pct, 6),
+    operations: computedOperations,
+  };
+}
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();

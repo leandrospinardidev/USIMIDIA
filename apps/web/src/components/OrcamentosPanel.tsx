@@ -17,6 +17,8 @@ import {
   CNC_MACHINE_PRESETS,
   CNC_MATERIAL_PRESETS,
   CNC_OPERATION_PRESETS,
+  type CncPieceType,
+  buildAutoStrategyPlan,
   calculateCycleMinFromPreset,
   calculateSetupMinFromPreset,
   suggestCentroForMachinePreset,
@@ -39,6 +41,7 @@ import type { StandardPanelProps } from "./panels/types";
 
 const ORCAMENTO_STATUS_FILTERS = ["", "RASCUNHO", "ENVIADO", "APROVADO", "REJEITADO"] as const;
 const PRESET_NOTE_TAG = "[PRESET_CNC]";
+const AUTO_STRATEGY_NOTE_TAG = "[AUTO_ESTRATEGIA]";
 
 interface OperacaoDraft {
   centro_trabalho_id: number | "";
@@ -95,6 +98,9 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
   const [presetMachineId, setPresetMachineId] = useState(CNC_MACHINE_PRESETS[1]?.id ?? "");
   const [presetMaterialId, setPresetMaterialId] = useState(CNC_MATERIAL_PRESETS[0]?.id ?? "");
   const [presetOperationId, setPresetOperationId] = useState(CNC_OPERATION_PRESETS[0]?.id ?? "");
+  const [pieceType, setPieceType] = useState<CncPieceType>("EIXO");
+  const [pieceDiametroMm, setPieceDiametroMm] = useState("");
+  const [pieceComprimentoMm, setPieceComprimentoMm] = useState("");
 
   const totalPages = Math.max(1, Math.ceil(total / 10));
 
@@ -133,6 +139,18 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     }
     return calculateCycleMinFromPreset(presetMachine, presetMaterial, presetOperation);
   }, [presetMachine, presetMaterial, presetOperation]);
+  const autoStrategyPlan = useMemo(() => {
+    if (!presetMachine || !presetMaterial) {
+      return null;
+    }
+    return buildAutoStrategyPlan({
+      machinePreset: presetMachine,
+      materialPreset: presetMaterial,
+      pieceType,
+      diametroMm: pieceDiametroMm ? Number(pieceDiametroMm) : null,
+      comprimentoMm: pieceComprimentoMm ? Number(pieceComprimentoMm) : null,
+    });
+  }, [presetMachine, presetMaterial, pieceType, pieceDiametroMm, pieceComprimentoMm]);
 
   useEffect(() => {
     if (!isActive) {
@@ -318,6 +336,17 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       });
       setPdfSimulacao(response);
       setQuantidade(String(response.leitura.quantidade_considerada));
+      const diametrosFromPdf = response.leitura.diametros_mm
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      if (diametrosFromPdf.length > 0) {
+        const majorDiametro = Math.max(...diametrosFromPdf);
+        setPieceDiametroMm(String(majorDiametro));
+      }
+      const comprimentoFromPdf = Number(response.leitura.comprimento_mm);
+      if (Number.isFinite(comprimentoFromPdf) && comprimentoFromPdf > 0) {
+        setPieceComprimentoMm(String(comprimentoFromPdf));
+      }
       const cicloInferidoMin = (() => {
         const horas = Number(response.custos.horas_maquina_estimadas_unit);
         if (!Number.isFinite(horas) || horas <= 0) {
@@ -484,7 +513,12 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     const filtered = previous
       .split("\n")
       .map((line) => line.trimEnd())
-      .filter((line) => line.trim() !== "" && !line.startsWith(PRESET_NOTE_TAG));
+      .filter(
+        (line) =>
+          line.trim() !== "" &&
+          !line.startsWith(PRESET_NOTE_TAG) &&
+          !line.startsWith(AUTO_STRATEGY_NOTE_TAG)
+      );
     const note = `${PRESET_NOTE_TAG} ${machineName} | ${materialName} | ${operationName}`;
     return [...filtered, note].join("\n");
   }
@@ -551,6 +585,55 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     );
   }
 
+  function handleApplyAutoStrategy(): void {
+    if (!presetMachine || !presetMaterial || !autoStrategyPlan) {
+      onError("Nao foi possivel gerar estrategia automatica com os parametros atuais.");
+      return;
+    }
+    if (centros.length === 0) {
+      onError("Cadastre ao menos um centro de trabalho para aplicar estrategia automatica.");
+      return;
+    }
+
+    const suggestedCenter = suggestCentroForMachinePreset(centros, presetMachine);
+    if (!suggestedCenter) {
+      onError("Nao foi encontrado centro compativel para estrategia automatica.");
+      return;
+    }
+
+    const nextOperations: OperacaoDraft[] = autoStrategyPlan.operations.map((operation) => ({
+      centro_trabalho_id: suggestedCenter.id,
+      setup_min: operation.setupMin,
+      ciclo_min: operation.cicloMin,
+      descricao: operation.descricao,
+    }));
+    setOperacoes(nextOperations);
+
+    if (!pdfCentroId) {
+      setPdfCentroId(suggestedCenter.id);
+    }
+    setMargemLucroPct(String(autoStrategyPlan.suggestedMarginPct));
+    setCustoIndiretoPct(String(autoStrategyPlan.suggestedIndirectPct));
+    setObservacao((prev) => {
+      const filtered = prev
+        .split("\n")
+        .map((line) => line.trimEnd())
+        .filter(
+          (line) =>
+            line.trim() !== "" &&
+            !line.startsWith(PRESET_NOTE_TAG) &&
+            !line.startsWith(AUTO_STRATEGY_NOTE_TAG)
+        );
+      const autoNote = `${AUTO_STRATEGY_NOTE_TAG} ${pieceType} | D=${pieceDiametroMm || "-"} mm | L=${pieceComprimentoMm || "-"} mm | furos~${autoStrategyPlan.furosEstimados}`;
+      const presetNote = `${PRESET_NOTE_TAG} ${presetMachine.nome} | ${presetMaterial.nome} | estrategia 3 operacoes`;
+      return [...filtered, autoNote, presetNote].join("\n");
+    });
+    onError(null);
+    onSuccess(
+      `Estrategia automatica aplicada: desbaste + acabamento + furacao em ${suggestedCenter.codigo}.`
+    );
+  }
+
   if (role === "operador") {
     return (
       <main className="mx-auto max-w-7xl px-4 py-4">
@@ -592,11 +675,10 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
           </div>
           <div className="mb-4 rounded-lg border border-cyan-700/40 bg-cyan-950/20 p-3">
             <h3 className="mb-1 text-sm font-semibold text-cyan-200">
-              Pre-definicoes CNC de mercado (V1)
+              Pre-definicoes CNC de mercado (V2)
             </h3>
             <p className="mb-3 text-xs text-cyan-100/85">
-              Selecione maquina, material e operacao para preencher automaticamente setup/ciclo,
-              margem e custo indireto.
+              Agora com tipo de peca e estrategia automatica (desbaste + acabamento + furacao).
             </p>
             <div className="grid gap-2 md:grid-cols-3">
               <label className="grid gap-1 text-xs">
@@ -659,6 +741,78 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                   min
                 </strong>
               </p>
+            </div>
+            <div className="mt-3 rounded border border-cyan-900/40 bg-slate-950/70 p-3">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-200">
+                Estrategia automatica por tipo de peca
+              </h4>
+              <div className="grid gap-2 md:grid-cols-3">
+                <label className="grid gap-1 text-xs">
+                  <span className="text-slate-300">Tipo de peca</span>
+                  <select
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={pieceType}
+                    onChange={(event) => setPieceType(event.target.value as CncPieceType)}
+                  >
+                    <option value="EIXO">Eixo</option>
+                    <option value="FLANGE">Flange</option>
+                    <option value="BLOCO">Bloco</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xs">
+                  <span className="text-slate-300">Diametro / largura (mm)</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.1"
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={pieceDiametroMm}
+                    onChange={(event) => setPieceDiametroMm(event.target.value)}
+                    placeholder="Ex.: 60"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs">
+                  <span className="text-slate-300">Comprimento (mm)</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.1"
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={pieceComprimentoMm}
+                    onChange={(event) => setPieceComprimentoMm(event.target.value)}
+                    placeholder="Ex.: 180"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-emerald-600 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-900/25"
+                  onClick={handleApplyAutoStrategy}
+                >
+                  Aplicar estrategia automatica (3 operacoes)
+                </button>
+                {autoStrategyPlan && (
+                  <p className="text-xs text-emerald-100/90">
+                    Fator dim.: <strong>{formatNumber(autoStrategyPlan.dimensionFactor, 2)}</strong> |
+                    Furos estimados: <strong>{autoStrategyPlan.furosEstimados}</strong> | Margem:{" "}
+                    <strong>{formatNumber(autoStrategyPlan.suggestedMarginPct, 0)}%</strong>
+                  </p>
+                )}
+              </div>
+              {autoStrategyPlan && (
+                <div className="mt-2 grid gap-1 rounded border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-slate-300 md:grid-cols-3">
+                  {autoStrategyPlan.operations.map((operation) => (
+                    <div key={operation.operationPresetId} className="rounded border border-slate-800 px-2 py-1">
+                      <p className="font-semibold text-slate-200">{operation.operationNome}</p>
+                      <p>
+                        Ciclo: {formatNumber(operation.cicloMin, 2)} min | Setup:{" "}
+                        {formatNumber(operation.setupMin, 2)} min
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             {presetMachine && presetMaterial && presetOperation && (
               <div className="mt-2 rounded border border-cyan-900/40 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
