@@ -101,7 +101,11 @@ class OrdemProducaoModel(Base):
         default=3,
         server_default="3",
     )
-    data_emissao: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
+    data_emissao: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+        server_default=func.current_date(),
+    )
     previsao_inicio: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     previsao_fim: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     inicio_real: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

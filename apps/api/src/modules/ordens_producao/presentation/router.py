@@ -10,11 +10,11 @@ from core.security import UserRole, require_roles
 from modules.ordens_producao.application.services import OrdensProducaoService
 from modules.ordens_producao.presentation.schemas import (
     OrdemListResponse,
+    OrdemOperacaoCreate,
     OrdemProducaoCreate,
     OrdemProducaoResponse,
     OrdemStatus,
     OrdemStatusUpdate,
-    OrdemOperacaoCreate,
 )
 from shared.application.pagination import PageMeta
 
@@ -88,7 +88,10 @@ def add_operacao(
     ordem_id: int,
     payload: OrdemOperacaoCreate,
 ):
-    return _service(db).add_operacao(ordem_id=ordem_id, payload=payload.model_dump(exclude_unset=True))
+    return _service(db).add_operacao(
+        ordem_id=ordem_id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
 
 
 @router.patch("/{ordem_id}/status", response_model=OrdemProducaoResponse)

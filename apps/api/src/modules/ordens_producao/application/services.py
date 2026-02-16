@@ -17,7 +17,10 @@ from modules.cadastro.infrastructure.models import (
 )
 from modules.engenharia_bom.application.services import BomService
 from modules.engenharia_bom.infrastructure.models import BomModel
-from modules.ordens_producao.infrastructure.models import OrdemOperacaoModel, OrdemProducaoModel
+from modules.ordens_producao.infrastructure.models import (
+    OrdemOperacaoModel,
+    OrdemProducaoModel,
+)
 
 HTTP_422 = status.HTTP_422_UNPROCESSABLE_CONTENT
 STATUS_OP = {
@@ -54,7 +57,10 @@ class OrdensProducaoService:
         if centro_id is not None:
             self._ensure_centro_exists(int(centro_id))
 
-        quantidade_planejada = self._to_decimal(payload["quantidade_planejada"], "quantidade_planejada")
+        quantidade_planejada = self._to_decimal(
+            payload["quantidade_planejada"],
+            "quantidade_planejada",
+        )
         if quantidade_planejada <= 0:
             raise HTTPException(
                 status_code=HTTP_422,
@@ -82,7 +88,10 @@ class OrdensProducaoService:
 
         operacoes_payload = payload.get("operacoes", [])
         status_inicial = "PLANEJADA" if operacoes_payload else "ABERTA"
-        bom_snapshot = self._build_bom_snapshot(bom_id=bom.id, quantidade_planejada=quantidade_planejada)
+        bom_snapshot = self._build_bom_snapshot(
+            bom_id=bom.id,
+            quantidade_planejada=quantidade_planejada,
+        )
 
         ordem = OrdemProducaoModel(
             numero_op=numero_op,
