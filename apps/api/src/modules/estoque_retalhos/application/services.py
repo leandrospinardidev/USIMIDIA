@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -286,7 +285,10 @@ class EstoqueRetalhosService:
 
         total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
         stmt = (
-            stmt.order_by(EstoqueMovimentacaoModel.data_hora.desc(), EstoqueMovimentacaoModel.id.desc())
+            stmt.order_by(
+                EstoqueMovimentacaoModel.data_hora.desc(),
+                EstoqueMovimentacaoModel.id.desc(),
+            )
             .offset((page - 1) * page_size)
             .limit(page_size)
         )

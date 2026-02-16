@@ -16,8 +16,8 @@ from modules.estoque_retalhos.presentation.schemas import (
     LoteEntradaCreate,
     LoteListResponse,
     LoteResponse,
-    MovimentoTipo,
     MovimentacaoListResponse,
+    MovimentoTipo,
     SaldoInsumoResponse,
 )
 from shared.application.pagination import PageMeta
@@ -100,7 +100,10 @@ def consumir_lote(
     lote_id: int,
     payload: LoteConsumoCreate,
 ):
-    return _service(db).consumir_lote(lote_id=lote_id, payload=payload.model_dump(exclude_unset=True))
+    return _service(db).consumir_lote(
+        lote_id=lote_id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
 
 
 @router.post("/lotes/{lote_id}/retalhos", response_model=GerarRetalhoResponse)
@@ -110,7 +113,10 @@ def gerar_retalho(
     lote_id: int,
     payload: GerarRetalhoCreate,
 ):
-    return _service(db).gerar_retalho(lote_id=lote_id, payload=payload.model_dump(exclude_unset=True))
+    return _service(db).gerar_retalho(
+        lote_id=lote_id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
 
 
 @router.post("/lotes/{lote_id}/ajustes", response_model=LoteResponse)
@@ -120,7 +126,10 @@ def ajustar_lote(
     lote_id: int,
     payload: AjusteLoteCreate,
 ):
-    return _service(db).ajustar_lote(lote_id=lote_id, payload=payload.model_dump(exclude_unset=True))
+    return _service(db).ajustar_lote(
+        lote_id=lote_id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
 
 
 @router.get("/lotes/{lote_id}/movimentacoes", response_model=MovimentacaoListResponse)
