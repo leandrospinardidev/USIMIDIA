@@ -1,4 +1,11 @@
 export type UserRole = "admin" | "pcp" | "operador" | "compras";
+export type TipoMaquina =
+  | "ROUTER_CNC"
+  | "LASER_CO2"
+  | "TORNO_CNC"
+  | "FRESA_CNC"
+  | "MONTAGEM"
+  | "INSPECAO";
 
 export interface PageMeta {
   page: number;
@@ -216,7 +223,10 @@ export interface CentroTrabalhoCadastro {
   id: number;
   codigo: string;
   nome: string;
+  tipo_maquina: TipoMaquina;
   taxa_horaria: string;
+  setup_padrao_min: number;
+  capacidade_horas_dia: string;
 }
 
 export interface BomListItem {

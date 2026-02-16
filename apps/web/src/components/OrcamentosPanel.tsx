@@ -13,6 +13,14 @@ import {
   simularOrcamentoPorPdf,
   uploadOrcamentoAnexo,
 } from "../api";
+import {
+  CNC_MACHINE_PRESETS,
+  CNC_MATERIAL_PRESETS,
+  CNC_OPERATION_PRESETS,
+  calculateCycleMinFromPreset,
+  calculateSetupMinFromPreset,
+  suggestCentroForMachinePreset,
+} from "../data/cncPresets";
 import type {
   BomListItem,
   CentroTrabalhoCadastro,
@@ -30,6 +38,7 @@ import { Metric } from "./Metric";
 import type { StandardPanelProps } from "./panels/types";
 
 const ORCAMENTO_STATUS_FILTERS = ["", "RASCUNHO", "ENVIADO", "APROVADO", "REJEITADO"] as const;
+const PRESET_NOTE_TAG = "[PRESET_CNC]";
 
 interface OperacaoDraft {
   centro_trabalho_id: number | "";
@@ -83,6 +92,9 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
   const [fileToUpload, setFileToUpload] = useState<File | null>(null);
   const [fileObs, setFileObs] = useState("");
   const [showSavedModule, setShowSavedModule] = useState(false);
+  const [presetMachineId, setPresetMachineId] = useState(CNC_MACHINE_PRESETS[1]?.id ?? "");
+  const [presetMaterialId, setPresetMaterialId] = useState(CNC_MATERIAL_PRESETS[0]?.id ?? "");
+  const [presetOperationId, setPresetOperationId] = useState(CNC_OPERATION_PRESETS[0]?.id ?? "");
 
   const totalPages = Math.max(1, Math.ceil(total / 10));
 
@@ -103,6 +115,24 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     ciclo_min: "0",
     descricao: "",
   };
+  const presetMachine = useMemo(
+    () => CNC_MACHINE_PRESETS.find((item) => item.id === presetMachineId) ?? CNC_MACHINE_PRESETS[0],
+    [presetMachineId]
+  );
+  const presetMaterial = useMemo(
+    () => CNC_MATERIAL_PRESETS.find((item) => item.id === presetMaterialId) ?? CNC_MATERIAL_PRESETS[0],
+    [presetMaterialId]
+  );
+  const presetOperation = useMemo(
+    () => CNC_OPERATION_PRESETS.find((item) => item.id === presetOperationId) ?? CNC_OPERATION_PRESETS[0],
+    [presetOperationId]
+  );
+  const presetCycleMin = useMemo(() => {
+    if (!presetMachine || !presetMaterial || !presetOperation) {
+      return "8.00";
+    }
+    return calculateCycleMinFromPreset(presetMachine, presetMaterial, presetOperation);
+  }, [presetMachine, presetMaterial, presetOperation]);
 
   useEffect(() => {
     if (!isActive) {
@@ -445,6 +475,82 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     );
   }
 
+  function upsertPresetNote(
+    previous: string,
+    machineName: string,
+    materialName: string,
+    operationName: string
+  ): string {
+    const filtered = previous
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim() !== "" && !line.startsWith(PRESET_NOTE_TAG));
+    const note = `${PRESET_NOTE_TAG} ${machineName} | ${materialName} | ${operationName}`;
+    return [...filtered, note].join("\n");
+  }
+
+  function handleApplyCncPreset(): void {
+    if (!presetMachine || !presetMaterial || !presetOperation) {
+      onError("Nao foi possivel aplicar preset CNC. Selecione maquina, material e operacao.");
+      return;
+    }
+    if (centros.length === 0) {
+      onError("Cadastre ao menos um centro de trabalho para aplicar o preset CNC.");
+      return;
+    }
+
+    const currentCenter =
+      operacaoPrincipal.centro_trabalho_id !== ""
+        ? centros.find((centro) => centro.id === Number(operacaoPrincipal.centro_trabalho_id)) ?? null
+        : null;
+    const suggestedCenter = suggestCentroForMachinePreset(centros, presetMachine);
+    const chosenCenter = currentCenter ?? suggestedCenter;
+
+    if (!chosenCenter) {
+      onError("Nao foi encontrado centro compativel para o preset escolhido.");
+      return;
+    }
+
+    const suggestedSetup = calculateSetupMinFromPreset(presetMachine, presetOperation, chosenCenter);
+    const suggestedMargin = Math.max(
+      presetMachine.margem_lucro_pct,
+      presetMaterial.margem_lucro_pct,
+      presetOperation.margem_lucro_pct
+    );
+    const suggestedIndirect = Math.max(
+      presetMachine.custo_indireto_pct,
+      presetOperation.custo_indireto_pct
+    );
+
+    setOperacoes((prev) => {
+      const next = prev.length > 0 ? [...prev] : [{ centro_trabalho_id: "", setup_min: "0", ciclo_min: "0", descricao: "" }];
+      const first = next[0] ?? { centro_trabalho_id: "", setup_min: "0", ciclo_min: "0", descricao: "" };
+      next[0] = {
+        ...first,
+        centro_trabalho_id: chosenCenter.id,
+        setup_min: suggestedSetup,
+        ciclo_min: presetCycleMin,
+        descricao: `${presetOperation.nome} - ${presetMaterial.nome}`,
+      };
+      return next;
+    });
+
+    if (!pdfCentroId) {
+      setPdfCentroId(chosenCenter.id);
+    }
+    if (!margemLucroPct.trim() || Number(margemLucroPct) <= 0) {
+      setMargemLucroPct(String(suggestedMargin));
+    }
+    setCustoIndiretoPct(String(suggestedIndirect));
+    setObservacao((prev) =>
+      upsertPresetNote(prev, presetMachine.nome, presetMaterial.nome, presetOperation.nome)
+    );
+    onError(null);
+    onSuccess(
+      `Preset CNC aplicado: ${presetOperation.nome} em ${presetMaterial.nome} (${chosenCenter.codigo}).`
+    );
+  }
+
   if (role === "operador") {
     return (
       <main className="mx-auto max-w-7xl px-4 py-4">
@@ -483,6 +589,87 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
               <p className="font-semibold text-cyan-300">PASSO 3</p>
               <p>Opcional: salvar orcamento e anexar desenho.</p>
             </div>
+          </div>
+          <div className="mb-4 rounded-lg border border-cyan-700/40 bg-cyan-950/20 p-3">
+            <h3 className="mb-1 text-sm font-semibold text-cyan-200">
+              Pre-definicoes CNC de mercado (V1)
+            </h3>
+            <p className="mb-3 text-xs text-cyan-100/85">
+              Selecione maquina, material e operacao para preencher automaticamente setup/ciclo,
+              margem e custo indireto.
+            </p>
+            <div className="grid gap-2 md:grid-cols-3">
+              <label className="grid gap-1 text-xs">
+                <span className="text-slate-300">Perfil de maquina</span>
+                <select
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={presetMachineId}
+                  onChange={(event) => setPresetMachineId(event.target.value)}
+                >
+                  {CNC_MACHINE_PRESETS.map((machine) => (
+                    <option key={machine.id} value={machine.id}>
+                      {machine.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs">
+                <span className="text-slate-300">Material</span>
+                <select
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={presetMaterialId}
+                  onChange={(event) => setPresetMaterialId(event.target.value)}
+                >
+                  {CNC_MATERIAL_PRESETS.map((material) => (
+                    <option key={material.id} value={material.id}>
+                      {material.nome} ({material.liga_ref})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs">
+                <span className="text-slate-300">Operacao padrao</span>
+                <select
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={presetOperationId}
+                  onChange={(event) => setPresetOperationId(event.target.value)}
+                >
+                  {CNC_OPERATION_PRESETS.map((operation) => (
+                    <option key={operation.id} value={operation.id}>
+                      {operation.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-cyan-600 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-900/25"
+                onClick={handleApplyCncPreset}
+              >
+                Aplicar preset CNC
+              </button>
+              <p className="text-xs text-cyan-100/90">
+                Ciclo sug.: <strong>{formatNumber(presetCycleMin, 2)} min</strong> | Setup sug.:{" "}
+                <strong>
+                  {presetMachine && presetOperation
+                    ? formatNumber(calculateSetupMinFromPreset(presetMachine, presetOperation), 2)
+                    : "-"}{" "}
+                  min
+                </strong>
+              </p>
+            </div>
+            {presetMachine && presetMaterial && presetOperation && (
+              <div className="mt-2 rounded border border-cyan-900/40 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
+                <p>
+                  {presetMachine.descricao} | Material {presetMaterial.liga_ref} (Vc{" "}
+                  {presetMaterial.vc_referencia_m_min} m/min, fz{" "}
+                  {presetMaterial.fz_referencia_mm_dente} mm/dente) | Operacao:{" "}
+                  {presetOperation.descricao}
+                </p>
+              </div>
+            )}
           </div>
           {loadingCatalogos && <p className="text-sm text-slate-400">Carregando cadastros...</p>}
 
