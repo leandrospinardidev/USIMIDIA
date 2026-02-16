@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -201,4 +202,138 @@ class OrcamentoAnexoModel(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class OrcamentoPresetCncModel(Base):
+    __tablename__ = "orcamento_presets_cnc"
+    __table_args__ = (
+        CheckConstraint("fator_ciclo > 0", name="ck_orc_preset_fator_ciclo"),
+        CheckConstraint("fator_setup > 0", name="ck_orc_preset_fator_setup"),
+        CheckConstraint(
+            "margem_lucro_pct >= 0",
+            name="ck_orc_preset_margem_lucro",
+        ),
+        CheckConstraint(
+            "custo_indireto_pct >= 0",
+            name="ck_orc_preset_custo_indireto",
+        ),
+        CheckConstraint(
+            "diametro_referencia_mm IS NULL OR diametro_referencia_mm >= 0",
+            name="ck_orc_preset_diametro_ref",
+        ),
+        CheckConstraint(
+            "comprimento_referencia_mm IS NULL OR comprimento_referencia_mm >= 0",
+            name="ck_orc_preset_comprimento_ref",
+        ),
+        CheckConstraint(
+            "amostras_mes >= 0",
+            name="ck_orc_preset_amostras_mes",
+        ),
+        CheckConstraint(
+            "tempo_planejado_min_total >= 0",
+            name="ck_orc_preset_tempo_planejado",
+        ),
+        CheckConstraint(
+            "tempo_real_min_total >= 0",
+            name="ck_orc_preset_tempo_real",
+        ),
+    )
+
+    id: Mapped[int] = _bigint_pk()
+    codigo: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    nome: Mapped[str] = mapped_column(String(120), nullable=False)
+    descricao: Mapped[str | None] = mapped_column(Text)
+    ativo: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
+    cliente_id: Mapped[int | None] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("clientes.id"),
+    )
+    produto_final_id: Mapped[int | None] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("produtos_finais.id"),
+    )
+    centro_trabalho_id: Mapped[int | None] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("centros_de_trabalho.id"),
+    )
+    fabricante_referencia: Mapped[str | None] = mapped_column(String(80))
+    linha_maquina_referencia: Mapped[str | None] = mapped_column(String(80))
+    perfil_maquina: Mapped[str | None] = mapped_column(String(80))
+    familia_peca: Mapped[str | None] = mapped_column(String(80))
+    tipo_peca: Mapped[str | None] = mapped_column(String(20))
+    material_referencia: Mapped[str | None] = mapped_column(String(80))
+    operacao_principal: Mapped[str | None] = mapped_column(String(80))
+    diametro_referencia_mm: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
+    comprimento_referencia_mm: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
+    fator_ciclo: Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),
+        nullable=False,
+        default=Decimal("1"),
+        server_default="1",
+    )
+    fator_setup: Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),
+        nullable=False,
+        default=Decimal("1"),
+        server_default="1",
+    )
+    margem_lucro_pct: Mapped[Decimal] = mapped_column(
+        Numeric(6, 2),
+        nullable=False,
+        default=Decimal("25"),
+        server_default="25",
+    )
+    custo_indireto_pct: Mapped[Decimal] = mapped_column(
+        Numeric(6, 2),
+        nullable=False,
+        default=Decimal("6"),
+        server_default="6",
+    )
+    operacoes_template_json: Mapped[list] = mapped_column(
+        JsonType,
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+    heuristicas_json: Mapped[dict] = mapped_column(
+        JsonType,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    amostras_mes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    tempo_planejado_min_total: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
+    tempo_real_min_total: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
+    ultima_calibracao_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )

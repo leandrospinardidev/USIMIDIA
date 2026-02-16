@@ -10,6 +10,8 @@ import type {
   OrcamentoDetail,
   OrcamentoListItem,
   OrcamentoOperacaoInput,
+  OrcamentoPresetCnc,
+  OrcamentoPresetRecalibracao,
   OrcamentoPdfSimulacao,
   OrcamentoSimulacao,
   OrdemDetail,
@@ -264,6 +266,15 @@ interface ListOrcamentosFilters {
   status?: string;
 }
 
+interface ListOrcamentoPresetsFilters {
+  page: number;
+  pageSize: number;
+  ativo?: boolean;
+  clienteId?: number;
+  produtoFinalId?: number;
+  search?: string;
+}
+
 interface OrcamentoCalculoPayload {
   cliente_id?: number;
   produto_final_id: number;
@@ -280,6 +291,48 @@ interface OrcamentoCreatePayload extends OrcamentoCalculoPayload {
   referencia_projeto?: string;
   observacao?: string;
   moeda?: string;
+}
+
+interface OrcamentoPresetOperacaoTemplatePayload {
+  sequencia: number;
+  centro_trabalho_id?: number;
+  setup_min?: string;
+  ciclo_min?: string;
+  descricao?: string;
+}
+
+interface OrcamentoPresetCncCreatePayload {
+  codigo?: string;
+  nome: string;
+  descricao?: string;
+  ativo?: boolean;
+  cliente_id?: number;
+  produto_final_id?: number;
+  centro_trabalho_id?: number;
+  fabricante_referencia?: string;
+  linha_maquina_referencia?: string;
+  perfil_maquina?: string;
+  familia_peca?: string;
+  tipo_peca?: string;
+  material_referencia?: string;
+  operacao_principal?: string;
+  diametro_referencia_mm?: string;
+  comprimento_referencia_mm?: string;
+  fator_ciclo?: string;
+  fator_setup?: string;
+  margem_lucro_pct?: string;
+  custo_indireto_pct?: string;
+  operacoes_template?: OrcamentoPresetOperacaoTemplatePayload[];
+  heuristicas?: Record<string, unknown>;
+}
+
+interface OrcamentoPresetCncUpdatePayload extends Partial<OrcamentoPresetCncCreatePayload> {}
+
+interface OrcamentoPresetRecalibrarPayload {
+  janela_dias?: number;
+  centro_trabalho_id?: number;
+  produto_final_id?: number;
+  suavizacao_alpha?: string;
 }
 
 export async function listClientesCadastro(
@@ -387,6 +440,61 @@ export async function listOrcamentos(
     status: filters.status,
   });
   return apiRequest<PaginatedResponse<OrcamentoListItem>>(`/orcamentos?${query}`, { role });
+}
+
+export async function listOrcamentoPresetsCnc(
+  role: UserRole,
+  filters: ListOrcamentoPresetsFilters
+): Promise<PaginatedResponse<OrcamentoPresetCnc>> {
+  const query = toQuery({
+    page: filters.page,
+    page_size: filters.pageSize,
+    ativo: filters.ativo === undefined ? undefined : String(filters.ativo),
+    cliente_id: filters.clienteId,
+    produto_final_id: filters.produtoFinalId,
+    search: filters.search,
+  });
+  return apiRequest<PaginatedResponse<OrcamentoPresetCnc>>(`/orcamentos/presets-cnc?${query}`, {
+    role,
+  });
+}
+
+export async function createOrcamentoPresetCnc(
+  role: UserRole,
+  payload: OrcamentoPresetCncCreatePayload
+): Promise<OrcamentoPresetCnc> {
+  return apiRequest<OrcamentoPresetCnc>("/orcamentos/presets-cnc", {
+    method: "POST",
+    role,
+    body: payload,
+  });
+}
+
+export async function updateOrcamentoPresetCnc(
+  role: UserRole,
+  presetId: number,
+  payload: OrcamentoPresetCncUpdatePayload
+): Promise<OrcamentoPresetCnc> {
+  return apiRequest<OrcamentoPresetCnc>(`/orcamentos/presets-cnc/${presetId}`, {
+    method: "PATCH",
+    role,
+    body: payload,
+  });
+}
+
+export async function recalibrarOrcamentoPresetCnc(
+  role: UserRole,
+  presetId: number,
+  payload: OrcamentoPresetRecalibrarPayload
+): Promise<OrcamentoPresetRecalibracao> {
+  return apiRequest<OrcamentoPresetRecalibracao>(
+    `/orcamentos/presets-cnc/${presetId}/recalibrar-mes`,
+    {
+      method: "POST",
+      role,
+      body: payload,
+    }
+  );
 }
 
 export async function getOrcamento(

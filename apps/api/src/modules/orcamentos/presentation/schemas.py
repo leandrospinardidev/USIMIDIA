@@ -125,6 +125,123 @@ class OrcamentoPdfSimulacaoResponse(SchemaBase):
     premissas: list[str]
 
 
+class OrcamentoPresetOperacaoTemplate(SchemaBase):
+    sequencia: int = Field(ge=1, le=9999)
+    centro_trabalho_id: int | None = Field(default=None, gt=0)
+    setup_min: Decimal = Field(default=Decimal("0"), ge=0)
+    ciclo_min: Decimal = Field(default=Decimal("0"), ge=0)
+    descricao: str | None = Field(default=None, max_length=200)
+
+
+class OrcamentoPresetCncCreate(SchemaBase):
+    codigo: str | None = Field(default=None, min_length=1, max_length=40)
+    nome: str = Field(min_length=1, max_length=120)
+    descricao: str | None = Field(default=None, max_length=3000)
+    ativo: bool = True
+    cliente_id: int | None = Field(default=None, gt=0)
+    produto_final_id: int | None = Field(default=None, gt=0)
+    centro_trabalho_id: int | None = Field(default=None, gt=0)
+    fabricante_referencia: str | None = Field(default=None, max_length=80)
+    linha_maquina_referencia: str | None = Field(default=None, max_length=80)
+    perfil_maquina: str | None = Field(default=None, max_length=80)
+    familia_peca: str | None = Field(default=None, max_length=80)
+    tipo_peca: str | None = Field(default=None, max_length=20)
+    material_referencia: str | None = Field(default=None, max_length=80)
+    operacao_principal: str | None = Field(default=None, max_length=80)
+    diametro_referencia_mm: Decimal | None = Field(default=None, ge=0)
+    comprimento_referencia_mm: Decimal | None = Field(default=None, ge=0)
+    fator_ciclo: Decimal = Field(default=Decimal("1"), gt=0)
+    fator_setup: Decimal = Field(default=Decimal("1"), gt=0)
+    margem_lucro_pct: Decimal = Field(default=Decimal("25"), ge=0)
+    custo_indireto_pct: Decimal = Field(default=Decimal("6"), ge=0)
+    operacoes_template: list[OrcamentoPresetOperacaoTemplate] = Field(default_factory=list)
+    heuristicas: dict = Field(default_factory=dict)
+
+
+class OrcamentoPresetCncUpdate(SchemaBase):
+    codigo: str | None = Field(default=None, min_length=1, max_length=40)
+    nome: str | None = Field(default=None, min_length=1, max_length=120)
+    descricao: str | None = Field(default=None, max_length=3000)
+    ativo: bool | None = None
+    cliente_id: int | None = Field(default=None, gt=0)
+    produto_final_id: int | None = Field(default=None, gt=0)
+    centro_trabalho_id: int | None = Field(default=None, gt=0)
+    fabricante_referencia: str | None = Field(default=None, max_length=80)
+    linha_maquina_referencia: str | None = Field(default=None, max_length=80)
+    perfil_maquina: str | None = Field(default=None, max_length=80)
+    familia_peca: str | None = Field(default=None, max_length=80)
+    tipo_peca: str | None = Field(default=None, max_length=20)
+    material_referencia: str | None = Field(default=None, max_length=80)
+    operacao_principal: str | None = Field(default=None, max_length=80)
+    diametro_referencia_mm: Decimal | None = Field(default=None, ge=0)
+    comprimento_referencia_mm: Decimal | None = Field(default=None, ge=0)
+    fator_ciclo: Decimal | None = Field(default=None, gt=0)
+    fator_setup: Decimal | None = Field(default=None, gt=0)
+    margem_lucro_pct: Decimal | None = Field(default=None, ge=0)
+    custo_indireto_pct: Decimal | None = Field(default=None, ge=0)
+    operacoes_template: list[OrcamentoPresetOperacaoTemplate] | None = None
+    heuristicas: dict | None = None
+
+
+class OrcamentoPresetRecalibrarRequest(SchemaBase):
+    janela_dias: int = Field(default=90, ge=1, le=3650)
+    centro_trabalho_id: int | None = Field(default=None, gt=0)
+    produto_final_id: int | None = Field(default=None, gt=0)
+    suavizacao_alpha: Decimal = Field(default=Decimal("0.65"), ge=0, le=1)
+
+
+class OrcamentoPresetRecalibrarResponse(SchemaBase):
+    preset_id: int
+    preset_nome: str
+    janela_dias: int
+    amostras_utilizadas: int
+    fator_ciclo_anterior: Decimal
+    fator_ciclo_novo: Decimal
+    fator_setup_anterior: Decimal
+    fator_setup_novo: Decimal
+    tempo_planejado_min_total: Decimal
+    tempo_real_min_total: Decimal
+    desvio_medio_pct: Decimal
+    ultima_calibracao_at: datetime
+
+
+class OrcamentoPresetCncResponse(SchemaBase):
+    id: int
+    codigo: str
+    nome: str
+    descricao: str | None
+    ativo: bool
+    cliente_id: int | None
+    produto_final_id: int | None
+    centro_trabalho_id: int | None
+    fabricante_referencia: str | None
+    linha_maquina_referencia: str | None
+    perfil_maquina: str | None
+    familia_peca: str | None
+    tipo_peca: str | None
+    material_referencia: str | None
+    operacao_principal: str | None
+    diametro_referencia_mm: Decimal | None
+    comprimento_referencia_mm: Decimal | None
+    fator_ciclo: Decimal
+    fator_setup: Decimal
+    margem_lucro_pct: Decimal
+    custo_indireto_pct: Decimal
+    operacoes_template: list[OrcamentoPresetOperacaoTemplate]
+    heuristicas: dict
+    amostras_mes: int
+    tempo_planejado_min_total: Decimal
+    tempo_real_min_total: Decimal
+    ultima_calibracao_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OrcamentoPresetCncListResponse(SchemaBase):
+    items: list[OrcamentoPresetCncResponse]
+    meta: PageMeta
+
+
 class OrcamentoVersaoResponse(SchemaBase):
     id: int
     versao: int

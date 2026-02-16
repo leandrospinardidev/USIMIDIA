@@ -15,6 +15,12 @@ from modules.orcamentos.presentation.schemas import (
     OrcamentoCreate,
     OrcamentoListResponse,
     OrcamentoPdfSimulacaoResponse,
+    OrcamentoPresetCncCreate,
+    OrcamentoPresetCncListResponse,
+    OrcamentoPresetCncResponse,
+    OrcamentoPresetCncUpdate,
+    OrcamentoPresetRecalibrarRequest,
+    OrcamentoPresetRecalibrarResponse,
     OrcamentoResponse,
     OrcamentoSimulacaoResponse,
     OrcamentoStatus,
@@ -127,6 +133,66 @@ def list_orcamentos(
         status_filter=status_filter.value if status_filter is not None else None,
     )
     return _paginated_response(items, page=page, page_size=page_size, total=total)
+
+
+@router.get("/presets-cnc", response_model=OrcamentoPresetCncListResponse)
+def list_presets_cnc(
+    _: ReadPermission,
+    db: DbSession,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    ativo: bool | None = Query(default=True),
+    cliente_id: int | None = Query(default=None, gt=0),
+    produto_final_id: int | None = Query(default=None, gt=0),
+    search: str | None = Query(default=None, max_length=100),
+) -> dict[str, Any]:
+    items, total = _service(db).list_presets_cnc(
+        page=page,
+        page_size=page_size,
+        ativo=ativo,
+        cliente_id=cliente_id,
+        produto_final_id=produto_final_id,
+        search=search,
+    )
+    return _paginated_response(items, page=page, page_size=page_size, total=total)
+
+
+@router.post(
+    "/presets-cnc",
+    response_model=OrcamentoPresetCncResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_preset_cnc(_: WritePermission, db: DbSession, payload: OrcamentoPresetCncCreate):
+    return _service(db).create_preset_cnc(payload.model_dump(exclude_unset=True))
+
+
+@router.patch("/presets-cnc/{preset_id}", response_model=OrcamentoPresetCncResponse)
+def update_preset_cnc(
+    _: WritePermission,
+    db: DbSession,
+    preset_id: int,
+    payload: OrcamentoPresetCncUpdate,
+):
+    return _service(db).update_preset_cnc(
+        preset_id=preset_id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
+
+
+@router.post(
+    "/presets-cnc/{preset_id}/recalibrar-mes",
+    response_model=OrcamentoPresetRecalibrarResponse,
+)
+def recalibrar_preset_cnc(
+    _: WritePermission,
+    db: DbSession,
+    preset_id: int,
+    payload: OrcamentoPresetRecalibrarRequest,
+):
+    return _service(db).recalibrar_preset_cnc(
+        preset_id=preset_id,
+        payload=payload.model_dump(exclude_unset=True),
+    )
 
 
 @router.get("/{orcamento_id}", response_model=OrcamentoResponse)

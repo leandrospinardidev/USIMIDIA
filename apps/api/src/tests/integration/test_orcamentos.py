@@ -127,6 +127,52 @@ def _create_bom_base(client: TestClient, *, produto_id: int, insumo_id: int) -> 
     return bom_data
 
 
+def _create_ordem_finalizada_com_mes(
+    client: TestClient,
+    *,
+    produto_id: int,
+    bom_id: int,
+    centro_id: int,
+) -> dict:
+    create_ordem = client.post(
+        "/api/v1/ordens-producao",
+        headers=ADMIN_HEADERS,
+        json={
+            "produto_final_id": produto_id,
+            "bom_id": bom_id,
+            "quantidade_planejada": "2",
+            "operacoes": [
+                {
+                    "centro_trabalho_id": centro_id,
+                    "setup_planejado_min": "10",
+                    "ciclo_planejado_min": "6",
+                }
+            ],
+        },
+    )
+    assert create_ordem.status_code == 201
+    ordem = create_ordem.json()
+    operacao_id = ordem["operacoes"][0]["id"]
+
+    evento_start = client.post(
+        f"/api/v1/mes-apontamentos/operacoes/{operacao_id}/eventos",
+        headers=ADMIN_HEADERS,
+        json={"evento": "START", "data_hora_evento": "2026-02-16T08:00:00Z"},
+    )
+    assert evento_start.status_code == 201
+    evento_stop = client.post(
+        f"/api/v1/mes-apontamentos/operacoes/{operacao_id}/eventos",
+        headers=ADMIN_HEADERS,
+        json={
+            "evento": "STOP",
+            "data_hora_evento": "2026-02-16T08:26:00Z",
+            "quantidade_produzida": "2",
+        },
+    )
+    assert evento_stop.status_code == 201
+    return ordem
+
+
 def test_simulacao_orcamento_calcula_material_maquina_margem(client: TestClient) -> None:
     cliente = _create_cliente(client)
     produto = _create_produto(client)
@@ -340,3 +386,84 @@ def test_simulacao_automatica_por_pdf(client: TestClient, monkeypatch: pytest.Mo
         data={"centro_trabalho_id": str(centro["id"])},
     )
     assert invalid.status_code == 422
+
+
+def test_presets_cnc_crud_e_recalibracao_mes(client: TestClient) -> None:
+    cliente = _create_cliente(client)
+    produto = _create_produto(client)
+    insumo = _create_insumo(client)
+    centro = _create_centro(client)
+    bom = _create_bom_base(client, produto_id=produto["id"], insumo_id=insumo["id"])
+    _create_ordem_finalizada_com_mes(
+        client,
+        produto_id=produto["id"],
+        bom_id=bom["id"],
+        centro_id=centro["id"],
+    )
+
+    create_preset = client.post(
+        "/api/v1/orcamentos/presets-cnc",
+        headers=ADMIN_HEADERS,
+        json={
+            "codigo": "PRCNC-TEST-001",
+            "nome": "Preset Flange Aco",
+            "cliente_id": cliente["id"],
+            "produto_final_id": produto["id"],
+            "centro_trabalho_id": centro["id"],
+            "fabricante_referencia": "Haas",
+            "perfil_maquina": "VF-2",
+            "familia_peca": "Flange circular furada",
+            "tipo_peca": "FLANGE",
+            "material_referencia": "Aco carbono",
+            "operacao_principal": "Desbaste",
+            "diametro_referencia_mm": "120",
+            "comprimento_referencia_mm": "25",
+            "fator_ciclo": "1.00",
+            "fator_setup": "1.00",
+            "margem_lucro_pct": "24",
+            "custo_indireto_pct": "7",
+            "operacoes_template": [
+                {
+                    "sequencia": 1,
+                    "centro_trabalho_id": centro["id"],
+                    "setup_min": "10",
+                    "ciclo_min": "6",
+                    "descricao": "Desbaste flange",
+                }
+            ],
+        },
+    )
+    assert create_preset.status_code == 201
+    preset = create_preset.json()
+    assert preset["codigo"] == "PRCNC-TEST-001"
+    assert preset["cliente_id"] == cliente["id"]
+
+    list_presets = client.get(
+        f"/api/v1/orcamentos/presets-cnc?cliente_id={cliente['id']}&produto_final_id={produto['id']}",
+        headers=ADMIN_HEADERS,
+    )
+    assert list_presets.status_code == 200
+    assert list_presets.json()["meta"]["total"] >= 1
+
+    update_preset = client.patch(
+        f"/api/v1/orcamentos/presets-cnc/{preset['id']}",
+        headers=ADMIN_HEADERS,
+        json={"nome": "Preset Flange Aco v2", "fator_ciclo": "1.10"},
+    )
+    assert update_preset.status_code == 200
+    assert update_preset.json()["nome"] == "Preset Flange Aco v2"
+
+    recalibrar = client.post(
+        f"/api/v1/orcamentos/presets-cnc/{preset['id']}/recalibrar-mes",
+        headers=ADMIN_HEADERS,
+        json={
+            "janela_dias": 365,
+            "centro_trabalho_id": centro["id"],
+            "produto_final_id": produto["id"],
+            "suavizacao_alpha": "0.80",
+        },
+    )
+    assert recalibrar.status_code == 200
+    recal_payload = recalibrar.json()
+    assert recal_payload["amostras_utilizadas"] >= 1
+    assert float(recal_payload["tempo_real_min_total"]) > 0

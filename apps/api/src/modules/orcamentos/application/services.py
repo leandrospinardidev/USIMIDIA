@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from io import BytesIO
@@ -28,12 +28,15 @@ from modules.cadastro.infrastructure.models import (
 )
 from modules.engenharia_bom.application.services import BomService
 from modules.engenharia_bom.infrastructure.models import BomModel
+from modules.mes_apontamentos.infrastructure.models import ApontamentoProducaoModel
 from modules.orcamentos.infrastructure.models import (
     OrcamentoAnexoModel,
     OrcamentoModel,
+    OrcamentoPresetCncModel,
     OrcamentoVersaoModel,
     OrcamentoVersaoOperacaoModel,
 )
+from modules.ordens_producao.infrastructure.models import OrdemOperacaoModel, OrdemProducaoModel
 
 HTTP_422 = status.HTTP_422_UNPROCESSABLE_CONTENT
 STATUS_PERMITIDOS = {"RASCUNHO", "ENVIADO", "APROVADO", "REJEITADO"}
@@ -536,6 +539,313 @@ class OrcamentosService:
             "absolute_path": str(absolute_path),
         }
 
+    def list_presets_cnc(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        ativo: bool | None = True,
+        cliente_id: int | None = None,
+        produto_final_id: int | None = None,
+        search: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        stmt = select(OrcamentoPresetCncModel)
+        if ativo is not None:
+            stmt = stmt.where(OrcamentoPresetCncModel.ativo == ativo)
+        if cliente_id is not None:
+            stmt = stmt.where(
+                or_(
+                    OrcamentoPresetCncModel.cliente_id.is_(None),
+                    OrcamentoPresetCncModel.cliente_id == cliente_id,
+                )
+            )
+        if produto_final_id is not None:
+            stmt = stmt.where(
+                or_(
+                    OrcamentoPresetCncModel.produto_final_id.is_(None),
+                    OrcamentoPresetCncModel.produto_final_id == produto_final_id,
+                )
+            )
+        if search:
+            pattern = f"%{search}%"
+            stmt = stmt.where(
+                or_(
+                    OrcamentoPresetCncModel.codigo.ilike(pattern),
+                    OrcamentoPresetCncModel.nome.ilike(pattern),
+                    OrcamentoPresetCncModel.descricao.ilike(pattern),
+                    OrcamentoPresetCncModel.material_referencia.ilike(pattern),
+                    OrcamentoPresetCncModel.familia_peca.ilike(pattern),
+                )
+            )
+
+        rows = list(
+            self.db.scalars(
+                stmt.order_by(
+                    OrcamentoPresetCncModel.updated_at.desc(),
+                    OrcamentoPresetCncModel.id.desc(),
+                )
+            ).all()
+        )
+
+        def _score(preset: OrcamentoPresetCncModel) -> int:
+            score = 0
+            if preset.cliente_id is None and preset.produto_final_id is None:
+                score += 1
+            if cliente_id is not None:
+                if preset.cliente_id == cliente_id:
+                    score += 2
+                elif preset.cliente_id is not None:
+                    score -= 3
+            if produto_final_id is not None:
+                if preset.produto_final_id == produto_final_id:
+                    score += 2
+                elif preset.produto_final_id is not None:
+                    score -= 3
+            return score
+
+        rows.sort(
+            key=lambda preset: (_score(preset), preset.updated_at, preset.id),
+            reverse=True,
+        )
+        total = len(rows)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paged = rows[start:end]
+        return [self._preset_to_payload(row) for row in paged], total
+
+    def create_preset_cnc(self, payload: dict[str, Any]) -> dict[str, Any]:
+        codigo = (payload.get("codigo") or self._generate_preset_codigo()).strip().upper()
+        self._ensure_preset_codigo_unique(codigo)
+
+        cliente_id = payload.get("cliente_id")
+        if cliente_id is not None:
+            self._ensure_cliente_exists(int(cliente_id))
+        produto_final_id = payload.get("produto_final_id")
+        if produto_final_id is not None:
+            self._ensure_produto_exists(int(produto_final_id))
+        centro_trabalho_id = payload.get("centro_trabalho_id")
+        if centro_trabalho_id is not None:
+            self._ensure_centro_exists(int(centro_trabalho_id))
+
+        preset = OrcamentoPresetCncModel(
+            codigo=codigo,
+            nome=str(payload["nome"]).strip(),
+            descricao=payload.get("descricao"),
+            ativo=bool(payload.get("ativo", True)),
+            cliente_id=cliente_id,
+            produto_final_id=produto_final_id,
+            centro_trabalho_id=centro_trabalho_id,
+            fabricante_referencia=payload.get("fabricante_referencia"),
+            linha_maquina_referencia=payload.get("linha_maquina_referencia"),
+            perfil_maquina=payload.get("perfil_maquina"),
+            familia_peca=payload.get("familia_peca"),
+            tipo_peca=payload.get("tipo_peca"),
+            material_referencia=payload.get("material_referencia"),
+            operacao_principal=payload.get("operacao_principal"),
+            diametro_referencia_mm=payload.get("diametro_referencia_mm"),
+            comprimento_referencia_mm=payload.get("comprimento_referencia_mm"),
+            fator_ciclo=self._to_decimal(payload.get("fator_ciclo", "1"), "fator_ciclo"),
+            fator_setup=self._to_decimal(payload.get("fator_setup", "1"), "fator_setup"),
+            margem_lucro_pct=self._to_decimal(
+                payload.get("margem_lucro_pct", "25"),
+                "margem_lucro_pct",
+            ),
+            custo_indireto_pct=self._to_decimal(
+                payload.get("custo_indireto_pct", "6"),
+                "custo_indireto_pct",
+            ),
+            operacoes_template_json=self._json_safe(payload.get("operacoes_template", [])),
+            heuristicas_json=self._json_safe(payload.get("heuristicas", {})),
+        )
+        self._validate_positive("fator_ciclo", Decimal(preset.fator_ciclo))
+        self._validate_positive("fator_setup", Decimal(preset.fator_setup))
+        self._validate_non_negative("margem_lucro_pct", Decimal(preset.margem_lucro_pct))
+        self._validate_non_negative("custo_indireto_pct", Decimal(preset.custo_indireto_pct))
+        self.db.add(preset)
+        self._commit_or_409("Falha ao criar preset CNC.")
+        self.db.refresh(preset)
+        return self._preset_to_payload(preset)
+
+    def update_preset_cnc(self, *, preset_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        preset = self._get_preset_or_404(preset_id)
+
+        if "codigo" in payload and payload.get("codigo") is not None:
+            codigo = str(payload["codigo"]).strip().upper()
+            if codigo != preset.codigo:
+                self._ensure_preset_codigo_unique(codigo)
+                preset.codigo = codigo
+
+        if "cliente_id" in payload and payload.get("cliente_id") is not None:
+            self._ensure_cliente_exists(int(payload["cliente_id"]))
+        if "produto_final_id" in payload and payload.get("produto_final_id") is not None:
+            self._ensure_produto_exists(int(payload["produto_final_id"]))
+        if "centro_trabalho_id" in payload and payload.get("centro_trabalho_id") is not None:
+            self._ensure_centro_exists(int(payload["centro_trabalho_id"]))
+
+        for field in (
+            "nome",
+            "descricao",
+            "ativo",
+            "cliente_id",
+            "produto_final_id",
+            "centro_trabalho_id",
+            "fabricante_referencia",
+            "linha_maquina_referencia",
+            "perfil_maquina",
+            "familia_peca",
+            "tipo_peca",
+            "material_referencia",
+            "operacao_principal",
+            "diametro_referencia_mm",
+            "comprimento_referencia_mm",
+        ):
+            if field in payload:
+                setattr(preset, field, payload.get(field))
+
+        if "fator_ciclo" in payload:
+            preset.fator_ciclo = self._to_decimal(payload["fator_ciclo"], "fator_ciclo")
+            self._validate_positive("fator_ciclo", Decimal(preset.fator_ciclo))
+        if "fator_setup" in payload:
+            preset.fator_setup = self._to_decimal(payload["fator_setup"], "fator_setup")
+            self._validate_positive("fator_setup", Decimal(preset.fator_setup))
+        if "margem_lucro_pct" in payload:
+            preset.margem_lucro_pct = self._to_decimal(
+                payload["margem_lucro_pct"],
+                "margem_lucro_pct",
+            )
+            self._validate_non_negative("margem_lucro_pct", Decimal(preset.margem_lucro_pct))
+        if "custo_indireto_pct" in payload:
+            preset.custo_indireto_pct = self._to_decimal(
+                payload["custo_indireto_pct"],
+                "custo_indireto_pct",
+            )
+            self._validate_non_negative("custo_indireto_pct", Decimal(preset.custo_indireto_pct))
+        if "operacoes_template" in payload:
+            preset.operacoes_template_json = self._json_safe(payload.get("operacoes_template", []))
+        if "heuristicas" in payload:
+            preset.heuristicas_json = self._json_safe(payload.get("heuristicas", {}))
+
+        preset.updated_at = datetime.now(UTC)
+        self._commit_or_409("Falha ao atualizar preset CNC.")
+        self.db.refresh(preset)
+        return self._preset_to_payload(preset)
+
+    def recalibrar_preset_cnc(self, *, preset_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        preset = self._get_preset_or_404(preset_id)
+        janela_dias = int(payload.get("janela_dias", 90))
+        if janela_dias < 1 or janela_dias > 3650:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="janela_dias deve estar entre 1 e 3650.",
+            )
+        alpha = self._to_decimal(payload.get("suavizacao_alpha", "0.65"), "suavizacao_alpha")
+        if alpha < 0 or alpha > 1:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="suavizacao_alpha deve estar entre 0 e 1.",
+            )
+
+        centro_id = payload.get("centro_trabalho_id") or preset.centro_trabalho_id
+        produto_final_id = payload.get("produto_final_id") or preset.produto_final_id
+        if centro_id is not None:
+            self._ensure_centro_exists(int(centro_id))
+        if produto_final_id is not None:
+            self._ensure_produto_exists(int(produto_final_id))
+
+        data_inicio = datetime.now(UTC).date() - timedelta(days=janela_dias)
+        stmt = (
+            select(OrdemOperacaoModel, OrdemProducaoModel)
+            .join(OrdemProducaoModel, OrdemProducaoModel.id == OrdemOperacaoModel.ordem_id)
+            .where(OrdemProducaoModel.status == "FINALIZADA")
+            .where(OrdemProducaoModel.data_emissao >= data_inicio)
+        )
+        if centro_id is not None:
+            stmt = stmt.where(OrdemOperacaoModel.centro_trabalho_id == int(centro_id))
+        if produto_final_id is not None:
+            stmt = stmt.where(OrdemProducaoModel.produto_final_id == int(produto_final_id))
+
+        rows = self.db.execute(stmt).all()
+        total_ratios: list[Decimal] = []
+        cycle_ratios: list[Decimal] = []
+        setup_ratios: list[Decimal] = []
+        tempo_planejado_total = Decimal("0")
+        tempo_real_total = Decimal("0")
+
+        for operacao, ordem in rows:
+            (
+                real_total_min,
+                first_segment_min,
+                quantidade_produzida,
+            ) = self._extract_mes_operation_metrics(operacao.id)
+            planned_setup = Decimal(operacao.setup_planejado_min)
+            planned_cycle = Decimal(operacao.ciclo_planejado_min)
+            planned_total = planned_setup + (planned_cycle * Decimal(ordem.quantidade_planejada))
+            if planned_total <= 0 or real_total_min <= 0:
+                continue
+
+            tempo_planejado_total += planned_total
+            tempo_real_total += real_total_min
+
+            total_ratio = self._clamp_decimal(real_total_min / planned_total, "0.30", "3.00")
+            total_ratios.append(total_ratio)
+
+            if planned_cycle > 0 and quantidade_produzida > 0:
+                cycle_real_unit = (real_total_min - planned_setup) / quantidade_produzida
+                cycle_ratio = self._clamp_decimal(cycle_real_unit / planned_cycle, "0.30", "3.00")
+                cycle_ratios.append(cycle_ratio)
+            if planned_setup > 0 and first_segment_min is not None and first_segment_min > 0:
+                setup_ratio = self._clamp_decimal(first_segment_min / planned_setup, "0.30", "3.00")
+                setup_ratios.append(setup_ratio)
+
+        if not total_ratios:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Nao ha amostras MES suficientes para recalibrar este preset.",
+            )
+
+        fator_cycle_sugerido = self._avg_decimal(cycle_ratios) or self._avg_decimal(total_ratios)
+        fator_setup_sugerido = self._avg_decimal(setup_ratios) or self._avg_decimal(total_ratios)
+        fator_cycle_anterior = Decimal(preset.fator_ciclo)
+        fator_setup_anterior = Decimal(preset.fator_setup)
+        fator_cycle_novo = self._blend_factor(
+            current=fator_cycle_anterior,
+            suggested=fator_cycle_sugerido or fator_cycle_anterior,
+            alpha=alpha,
+        )
+        fator_setup_novo = self._blend_factor(
+            current=fator_setup_anterior,
+            suggested=fator_setup_sugerido or fator_setup_anterior,
+            alpha=alpha,
+        )
+
+        preset.fator_ciclo = fator_cycle_novo
+        preset.fator_setup = fator_setup_novo
+        preset.amostras_mes = len(total_ratios)
+        preset.tempo_planejado_min_total = tempo_planejado_total.quantize(Decimal("0.01"))
+        preset.tempo_real_min_total = tempo_real_total.quantize(Decimal("0.01"))
+        preset.ultima_calibracao_at = datetime.now(UTC)
+        preset.updated_at = datetime.now(UTC)
+
+        self._commit_or_409("Falha ao recalibrar preset CNC com MES.")
+        self.db.refresh(preset)
+
+        ratio_medio = self._avg_decimal(total_ratios) or Decimal("1")
+        desvio_medio_pct = (ratio_medio - Decimal("1")) * Decimal("100")
+        return {
+            "preset_id": preset.id,
+            "preset_nome": preset.nome,
+            "janela_dias": janela_dias,
+            "amostras_utilizadas": len(total_ratios),
+            "fator_ciclo_anterior": fator_cycle_anterior,
+            "fator_ciclo_novo": Decimal(preset.fator_ciclo),
+            "fator_setup_anterior": fator_setup_anterior,
+            "fator_setup_novo": Decimal(preset.fator_setup),
+            "tempo_planejado_min_total": Decimal(preset.tempo_planejado_min_total),
+            "tempo_real_min_total": Decimal(preset.tempo_real_min_total),
+            "desvio_medio_pct": desvio_medio_pct.quantize(Decimal("0.01")),
+            "ultima_calibracao_at": preset.ultima_calibracao_at,
+        }
+
     def _create_versao(
         self,
         *,
@@ -748,6 +1058,114 @@ class OrcamentosService:
             "download_path": f"/api/v1/orcamentos/anexos/{anexo.id}/download",
         }
 
+    def _preset_to_payload(self, preset: OrcamentoPresetCncModel) -> dict[str, Any]:
+        operacoes_template = []
+        for idx, op in enumerate(preset.operacoes_template_json or [], start=1):
+            operacoes_template.append(
+                {
+                    "sequencia": int(op.get("sequencia", idx)),
+                    "centro_trabalho_id": op.get("centro_trabalho_id"),
+                    "setup_min": self._decimal_or_default(op.get("setup_min"), "0"),
+                    "ciclo_min": self._decimal_or_default(op.get("ciclo_min"), "0"),
+                    "descricao": op.get("descricao"),
+                }
+            )
+        return {
+            "id": preset.id,
+            "codigo": preset.codigo,
+            "nome": preset.nome,
+            "descricao": preset.descricao,
+            "ativo": bool(preset.ativo),
+            "cliente_id": preset.cliente_id,
+            "produto_final_id": preset.produto_final_id,
+            "centro_trabalho_id": preset.centro_trabalho_id,
+            "fabricante_referencia": preset.fabricante_referencia,
+            "linha_maquina_referencia": preset.linha_maquina_referencia,
+            "perfil_maquina": preset.perfil_maquina,
+            "familia_peca": preset.familia_peca,
+            "tipo_peca": preset.tipo_peca,
+            "material_referencia": preset.material_referencia,
+            "operacao_principal": preset.operacao_principal,
+            "diametro_referencia_mm": preset.diametro_referencia_mm,
+            "comprimento_referencia_mm": preset.comprimento_referencia_mm,
+            "fator_ciclo": preset.fator_ciclo,
+            "fator_setup": preset.fator_setup,
+            "margem_lucro_pct": preset.margem_lucro_pct,
+            "custo_indireto_pct": preset.custo_indireto_pct,
+            "operacoes_template": operacoes_template,
+            "heuristicas": preset.heuristicas_json or {},
+            "amostras_mes": int(preset.amostras_mes or 0),
+            "tempo_planejado_min_total": preset.tempo_planejado_min_total,
+            "tempo_real_min_total": preset.tempo_real_min_total,
+            "ultima_calibracao_at": preset.ultima_calibracao_at,
+            "created_at": preset.created_at,
+            "updated_at": preset.updated_at,
+        }
+
+    def _extract_mes_operation_metrics(
+        self,
+        ordem_operacao_id: int,
+    ) -> tuple[Decimal, Decimal | None, Decimal]:
+        eventos = list(
+            self.db.scalars(
+                select(ApontamentoProducaoModel)
+                .where(ApontamentoProducaoModel.ordem_operacao_id == ordem_operacao_id)
+                .order_by(
+                    ApontamentoProducaoModel.data_hora_evento.asc(),
+                    ApontamentoProducaoModel.id.asc(),
+                )
+            ).all()
+        )
+        total_seconds = Decimal("0")
+        first_segment_min: Decimal | None = None
+        active_since: datetime | None = None
+        quantidade_produzida = Decimal("0")
+        for evento in eventos:
+            event_at = self._normalize_event_datetime(evento.data_hora_evento)
+            quantidade_produzida += Decimal(evento.quantidade_produzida)
+            if evento.evento in {"START", "RETOMADA"}:
+                if active_since is None:
+                    active_since = event_at
+                continue
+            if evento.evento in {"PAUSA", "STOP"} and active_since is not None:
+                delta_seconds = Decimal((event_at - active_since).total_seconds())
+                if delta_seconds > 0:
+                    total_seconds += delta_seconds
+                    if first_segment_min is None:
+                        first_segment_min = (delta_seconds / Decimal("60")).quantize(
+                            Decimal("0.0001")
+                        )
+                active_since = None
+
+        total_minutes = (total_seconds / Decimal("60")).quantize(Decimal("0.0001"))
+        return total_minutes, first_segment_min, quantidade_produzida
+
+    def _avg_decimal(self, values: list[Decimal]) -> Decimal | None:
+        if not values:
+            return None
+        return (sum(values, start=Decimal("0")) / Decimal(len(values))).quantize(Decimal("0.0001"))
+
+    def _blend_factor(self, *, current: Decimal, suggested: Decimal, alpha: Decimal) -> Decimal:
+        one = Decimal("1")
+        blended = (current * (one - alpha)) + (suggested * alpha)
+        return self._clamp_decimal(blended, "0.30", "3.00")
+
+    def _clamp_decimal(self, value: Decimal, min_value: str, max_value: str) -> Decimal:
+        low = Decimal(min_value)
+        high = Decimal(max_value)
+        return min(high, max(low, value)).quantize(Decimal("0.0001"))
+
+    def _normalize_event_datetime(self, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    def _decimal_or_default(self, value: Any, default: str) -> Decimal:
+        try:
+            return Decimal(str(value if value is not None else default))
+        except Exception:  # noqa: BLE001
+            return Decimal(default)
+
     def _simulate_operacoes(
         self,
         *,
@@ -934,6 +1352,28 @@ class OrcamentosService:
             )
         return orcamento
 
+    def _get_preset_or_404(self, preset_id: int) -> OrcamentoPresetCncModel:
+        preset = self.db.get(OrcamentoPresetCncModel, preset_id)
+        if preset is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Preset CNC nao encontrado.",
+            )
+        return preset
+
+    def _generate_preset_codigo(self) -> str:
+        return f"PRCNC-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')[:17]}"
+
+    def _ensure_preset_codigo_unique(self, codigo: str) -> None:
+        existing_id = self.db.scalar(
+            select(OrcamentoPresetCncModel.id).where(OrcamentoPresetCncModel.codigo == codigo)
+        )
+        if existing_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Codigo de preset CNC ja cadastrado.",
+            )
+
     def _normalize_moeda(self, moeda: Any) -> str:
         moeda_str = str(moeda or "BRL").upper().strip()
         if len(moeda_str) < 3 or len(moeda_str) > 10:
@@ -957,6 +1397,13 @@ class OrcamentosService:
             raise HTTPException(
                 status_code=HTTP_422,
                 detail=f"{field_name} nao pode ser negativo.",
+            )
+
+    def _validate_positive(self, field_name: str, value: Decimal) -> None:
+        if value <= 0:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail=f"{field_name} deve ser maior que zero.",
             )
 
     def _json_safe(self, value: Any) -> Any:
@@ -985,6 +1432,8 @@ class OrcamentosService:
                 detail = "Versao de orcamento duplicada."
             if "orcamentos_codigo_key" in str(exc.orig):
                 detail = "Codigo de orcamento ja cadastrado."
+            if "orcamento_presets_cnc_codigo_key" in str(exc.orig):
+                detail = "Codigo de preset CNC ja cadastrado."
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=detail,

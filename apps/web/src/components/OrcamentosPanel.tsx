@@ -1,16 +1,20 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
+  createOrcamentoPresetCnc,
   criarOrcamento,
   downloadOrcamentoAnexo,
   getOrcamento,
   listBomsByProduto,
   listCentrosCadastro,
   listClientesCadastro,
+  listOrcamentoPresetsCnc,
   listOrcamentos,
   listProdutosCadastro,
+  recalibrarOrcamentoPresetCnc,
   simularOrcamento,
   simularOrcamentoPorPdf,
+  updateOrcamentoPresetCnc,
   uploadOrcamentoAnexo,
 } from "../api";
 import {
@@ -32,6 +36,8 @@ import type {
   OrcamentoDetail,
   OrcamentoListItem,
   OrcamentoOperacaoInput,
+  OrcamentoPresetCnc,
+  OrcamentoPresetRecalibracao,
   OrcamentoPdfSimulacao,
   OrcamentoSimulacao,
   ProdutoFinalCadastro,
@@ -107,6 +113,13 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
   const [pieceType, setPieceType] = useState<CncPieceType>("EIXO");
   const [pieceDiametroMm, setPieceDiametroMm] = useState("");
   const [pieceComprimentoMm, setPieceComprimentoMm] = useState("");
+  const [backendPresets, setBackendPresets] = useState<OrcamentoPresetCnc[]>([]);
+  const [loadingBackendPresets, setLoadingBackendPresets] = useState(false);
+  const [selectedBackendPresetId, setSelectedBackendPresetId] = useState<number | "">("");
+  const [backendPresetSearch, setBackendPresetSearch] = useState("");
+  const [presetNomeDraft, setPresetNomeDraft] = useState("");
+  const [presetCodigoDraft, setPresetCodigoDraft] = useState("");
+  const [presetDescricaoDraft, setPresetDescricaoDraft] = useState("");
 
   const totalPages = Math.max(1, Math.ceil(total / 10));
 
@@ -182,6 +195,11 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     pieceDiametroMm,
     pieceComprimentoMm,
   ]);
+  const selectedBackendPreset = useMemo(
+    () =>
+      backendPresets.find((preset) => preset.id === Number(selectedBackendPresetId)) ?? null,
+    [backendPresets, selectedBackendPresetId]
+  );
 
   useEffect(() => {
     if (!isActive) {
@@ -219,6 +237,13 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     }
     void loadBoms(produtoId);
   }, [produtoId, isActive, role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isActive || role === "operador") {
+      return;
+    }
+    void loadBackendPresets();
+  }, [isActive, role, clienteId, produtoId, backendPresetSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!pieceFamily) {
@@ -285,6 +310,31 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       onError(extractErrorMessage(error));
     } finally {
       setLoadingOrcamentos(false);
+    }
+  }
+
+  async function loadBackendPresets(): Promise<void> {
+    setLoadingBackendPresets(true);
+    try {
+      const response = await listOrcamentoPresetsCnc(role, {
+        page: 1,
+        pageSize: 100,
+        ativo: true,
+        clienteId: clienteId ? Number(clienteId) : undefined,
+        produtoFinalId: produtoId ? Number(produtoId) : undefined,
+        search: backendPresetSearch.trim() || undefined,
+      });
+      setBackendPresets(response.items);
+      if (
+        selectedBackendPresetId &&
+        !response.items.some((item) => item.id === Number(selectedBackendPresetId))
+      ) {
+        setSelectedBackendPresetId("");
+      }
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    } finally {
+      setLoadingBackendPresets(false);
     }
   }
 
@@ -696,6 +746,233 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     );
   }
 
+  function normalizeText(value: string): string {
+    return value.trim().toLowerCase();
+  }
+
+  function applyBackendPresetLocally(preset: OrcamentoPresetCnc): void {
+    const selectedFamily =
+      CNC_PIECE_FAMILIES.find(
+        (family) =>
+          normalizeText(family.nome) === normalizeText(preset.familia_peca ?? "") ||
+          normalizeText(family.id) === normalizeText(preset.familia_peca ?? "")
+      ) ?? null;
+    if (selectedFamily) {
+      setPieceFamilyId(selectedFamily.id);
+      setPieceType(selectedFamily.pieceType);
+    } else if (preset.tipo_peca === "EIXO" || preset.tipo_peca === "FLANGE" || preset.tipo_peca === "BLOCO") {
+      setPieceType(preset.tipo_peca);
+    }
+
+    const selectedManufacturer =
+      CNC_MANUFACTURER_PROFILES.find(
+        (profile) =>
+          normalizeText(profile.fabricante) === normalizeText(preset.fabricante_referencia ?? "") ||
+          normalizeText(profile.nome) === normalizeText(preset.perfil_maquina ?? "")
+      ) ?? null;
+    if (selectedManufacturer) {
+      setManufacturerProfileId(selectedManufacturer.id);
+    }
+
+    const selectedMachine =
+      CNC_MACHINE_PRESETS.find(
+        (machine) =>
+          normalizeText(machine.nome) === normalizeText(preset.perfil_maquina ?? "") ||
+          normalizeText(machine.id) === normalizeText(preset.perfil_maquina ?? "")
+      ) ?? null;
+    if (selectedMachine) {
+      setPresetMachineId(selectedMachine.id);
+    }
+
+    const selectedMaterial =
+      CNC_MATERIAL_PRESETS.find(
+        (material) =>
+          normalizeText(material.nome) === normalizeText(preset.material_referencia ?? "") ||
+          normalizeText(material.liga_ref) === normalizeText(preset.material_referencia ?? "")
+      ) ?? null;
+    if (selectedMaterial) {
+      setPresetMaterialId(selectedMaterial.id);
+    }
+
+    const selectedOperation =
+      CNC_OPERATION_PRESETS.find(
+        (operation) =>
+          normalizeText(operation.nome) === normalizeText(preset.operacao_principal ?? "") ||
+          normalizeText(operation.id) === normalizeText(preset.operacao_principal ?? "")
+      ) ?? null;
+    if (selectedOperation) {
+      setPresetOperationId(selectedOperation.id);
+    }
+
+    if (preset.diametro_referencia_mm) {
+      setPieceDiametroMm(String(preset.diametro_referencia_mm));
+    }
+    if (preset.comprimento_referencia_mm) {
+      setPieceComprimentoMm(String(preset.comprimento_referencia_mm));
+    }
+    setMargemLucroPct(String(preset.margem_lucro_pct));
+    setCustoIndiretoPct(String(preset.custo_indireto_pct));
+
+    if (preset.operacoes_template.length > 0) {
+      const mapped = preset.operacoes_template
+        .sort((a, b) => a.sequencia - b.sequencia)
+        .map((op) => ({
+          centro_trabalho_id: op.centro_trabalho_id ?? "",
+          setup_min: op.setup_min || "0",
+          ciclo_min: op.ciclo_min || "0",
+          descricao: op.descricao || "",
+        }));
+      setOperacoes(mapped);
+      const firstCenter = mapped[0]?.centro_trabalho_id;
+      if (firstCenter) {
+        setPdfCentroId(Number(firstCenter));
+      }
+    } else {
+      const firstCenterId = preset.centro_trabalho_id ?? (pdfCentroId ? Number(pdfCentroId) : null);
+      const setupBase = Number(
+        calculateSetupMinFromPreset(
+          presetMachine,
+          presetOperation,
+          centros.find((centro) => centro.id === firstCenterId) ?? undefined,
+          manufacturerProfile
+        )
+      );
+      const cycleBase = Number(presetCycleMin);
+      const fallbackSetup = Number(preset.fator_setup || "1") * (Number.isFinite(setupBase) ? setupBase : 10);
+      const fallbackCycle = Number(preset.fator_ciclo || "1") * (Number.isFinite(cycleBase) ? cycleBase : 8);
+      setOperacoes([
+        {
+          centro_trabalho_id: firstCenterId ?? "",
+          setup_min: Number.isFinite(fallbackSetup) ? fallbackSetup.toFixed(2) : "10.00",
+          ciclo_min: Number.isFinite(fallbackCycle) ? fallbackCycle.toFixed(2) : "8.00",
+          descricao: preset.operacao_principal || "Usinagem CNC principal",
+        },
+      ]);
+      if (firstCenterId) {
+        setPdfCentroId(firstCenterId);
+      }
+    }
+
+    if (preset.nome) {
+      setPresetNomeDraft(preset.nome);
+    }
+    if (preset.codigo) {
+      setPresetCodigoDraft(preset.codigo);
+    }
+    setPresetDescricaoDraft(preset.descricao ?? "");
+  }
+
+  async function handleSaveBackendPreset(createNew: boolean): Promise<void> {
+    const nomePreset = presetNomeDraft.trim();
+    if (!nomePreset) {
+      onError("Informe um nome para salvar o preset CNC.");
+      return;
+    }
+
+    const payloadOperacoes = buildOperacoesPayload().map((op, idx) => ({
+      sequencia: idx + 1,
+      centro_trabalho_id: op.centro_trabalho_id,
+      setup_min: op.setup_min || "0",
+      ciclo_min: op.ciclo_min || "0",
+      descricao: op.descricao,
+    }));
+    const centroPrincipal = payloadOperacoes[0]?.centro_trabalho_id ?? (pdfCentroId ? Number(pdfCentroId) : undefined);
+    const centroModel = centros.find((centro) => centro.id === centroPrincipal);
+    const setupBaseRef = Number(
+      calculateSetupMinFromPreset(presetMachine, presetOperation, centroModel, manufacturerProfile)
+    );
+    const cycleBaseRef = Number(presetCycleMin);
+    const setupAtual = Number(payloadOperacoes[0]?.setup_min ?? 0);
+    const cicloAtual = Number(payloadOperacoes[0]?.ciclo_min ?? 0);
+    const fatorCiclo = cycleBaseRef > 0 && Number.isFinite(cicloAtual) ? cicloAtual / cycleBaseRef : 1;
+    const fatorSetup = setupBaseRef > 0 && Number.isFinite(setupAtual) ? setupAtual / setupBaseRef : 1;
+    const fatorCicloClamped = Math.min(3, Math.max(0.3, fatorCiclo || 1));
+    const fatorSetupClamped = Math.min(3, Math.max(0.3, fatorSetup || 1));
+
+    const commonPayload = {
+      codigo: presetCodigoDraft.trim() || undefined,
+      nome: nomePreset,
+      descricao: presetDescricaoDraft.trim() || undefined,
+      cliente_id: clienteId ? Number(clienteId) : undefined,
+      produto_final_id: produtoId ? Number(produtoId) : undefined,
+      centro_trabalho_id: centroPrincipal,
+      fabricante_referencia: manufacturerProfile?.fabricante,
+      linha_maquina_referencia: manufacturerProfile?.linha_referencia,
+      perfil_maquina: presetMachine?.nome,
+      familia_peca: pieceFamily?.nome,
+      tipo_peca: pieceType,
+      material_referencia: presetMaterial?.nome,
+      operacao_principal: presetOperation?.nome,
+      diametro_referencia_mm: pieceDiametroMm || undefined,
+      comprimento_referencia_mm: pieceComprimentoMm || undefined,
+      fator_ciclo: fatorCicloClamped.toFixed(4),
+      fator_setup: fatorSetupClamped.toFixed(4),
+      margem_lucro_pct: (margemLucroPct.trim() || String(autoStrategyPlan?.suggestedMarginPct ?? 25)).trim(),
+      custo_indireto_pct: (custoIndiretoPct.trim() || String(autoStrategyPlan?.suggestedIndirectPct ?? 6)).trim(),
+      operacoes_template: payloadOperacoes,
+      heuristicas: {
+        source: "ui-v4",
+        manufacturer_profile: manufacturerProfile?.nome,
+        piece_family: pieceFamily?.id,
+      },
+    };
+
+    setSubmitting(true);
+    onError(null);
+    onSuccess(null);
+    try {
+      let savedPreset: OrcamentoPresetCnc;
+      if (!createNew) {
+        if (!selectedBackendPreset) {
+          onError("Selecione um preset salvo para atualizar.");
+          return;
+        }
+        savedPreset = await updateOrcamentoPresetCnc(role, selectedBackendPreset.id, commonPayload);
+        onSuccess(`Preset CNC ${savedPreset.nome} atualizado com sucesso.`);
+      } else {
+        savedPreset = await createOrcamentoPresetCnc(role, commonPayload);
+        setSelectedBackendPresetId(savedPreset.id);
+        onSuccess(`Preset CNC ${savedPreset.nome} salvo com sucesso.`);
+      }
+      await loadBackendPresets();
+      applyBackendPresetLocally(savedPreset);
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleRecalibrarPresetMes(): Promise<void> {
+    if (!selectedBackendPreset) {
+      onError("Selecione um preset salvo para recalibrar pelo MES.");
+      return;
+    }
+    setSubmitting(true);
+    onError(null);
+    onSuccess(null);
+    try {
+      const response: OrcamentoPresetRecalibracao = await recalibrarOrcamentoPresetCnc(
+        role,
+        selectedBackendPreset.id,
+        {
+          janela_dias: 180,
+          centro_trabalho_id: selectedBackendPreset.centro_trabalho_id ?? undefined,
+          produto_final_id: selectedBackendPreset.produto_final_id ?? undefined,
+          suavizacao_alpha: "0.65",
+        }
+      );
+      await loadBackendPresets();
+      onSuccess(
+        `MES recalibrou ${response.preset_nome}: ciclo ${formatNumber(response.fator_ciclo_anterior, 3)} -> ${formatNumber(response.fator_ciclo_novo, 3)} (${response.amostras_utilizadas} amostras).`
+      );
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (role === "operador") {
     return (
       <main className="mx-auto max-w-7xl px-4 py-4">
@@ -930,6 +1207,118 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+            <div className="mt-3 rounded border border-violet-900/40 bg-violet-950/20 p-3">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-200">
+                Presets persistidos (backend V4)
+              </h4>
+              <div className="grid gap-2 md:grid-cols-2">
+                <label className="grid gap-1 text-xs">
+                  <span className="text-slate-300">Buscar preset salvo</span>
+                  <input
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={backendPresetSearch}
+                    onChange={(event) => setBackendPresetSearch(event.target.value)}
+                    placeholder="codigo, nome, material, familia..."
+                  />
+                </label>
+                <label className="grid gap-1 text-xs">
+                  <span className="text-slate-300">Preset encontrado</span>
+                  <select
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={selectedBackendPresetId}
+                    onChange={(event) =>
+                      setSelectedBackendPresetId(event.target.value ? Number(event.target.value) : "")
+                    }
+                  >
+                    <option value="">Selecione</option>
+                    {backendPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.codigo} - {preset.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xs">
+                  <span className="text-slate-300">Nome do preset para salvar</span>
+                  <input
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={presetNomeDraft}
+                    onChange={(event) => setPresetNomeDraft(event.target.value)}
+                    placeholder="Ex.: FLANGE-ACO-HAAS-VF"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs">
+                  <span className="text-slate-300">Codigo opcional</span>
+                  <input
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={presetCodigoDraft}
+                    onChange={(event) => setPresetCodigoDraft(event.target.value)}
+                    placeholder="PRCNC-FLG-001"
+                  />
+                </label>
+              </div>
+              <label className="mt-2 grid gap-1 text-xs">
+                <span className="text-slate-300">Descricao opcional</span>
+                <textarea
+                  className="min-h-14 rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={presetDescricaoDraft}
+                  onChange={(event) => setPresetDescricaoDraft(event.target.value)}
+                  placeholder="Contexto do preset, maquina, familia e observacoes."
+                />
+              </label>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-violet-600 px-3 py-2 text-sm text-violet-100 hover:bg-violet-900/25 disabled:opacity-50"
+                  onClick={() => {
+                    if (!selectedBackendPreset) {
+                      onError("Selecione um preset salvo para aplicar.");
+                      return;
+                    }
+                    applyBackendPresetLocally(selectedBackendPreset);
+                    onSuccess(`Preset ${selectedBackendPreset.nome} aplicado no formulario.`);
+                  }}
+                  disabled={submitting || !selectedBackendPreset}
+                >
+                  Aplicar preset salvo
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-emerald-600 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-900/25 disabled:opacity-50"
+                  onClick={() => void handleSaveBackendPreset(true)}
+                  disabled={submitting}
+                >
+                  Salvar novo preset
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-100 hover:bg-sky-900/25 disabled:opacity-50"
+                  onClick={() => void handleSaveBackendPreset(false)}
+                  disabled={submitting || !selectedBackendPreset}
+                >
+                  Atualizar preset selecionado
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-amber-600 px-3 py-2 text-sm text-amber-100 hover:bg-amber-900/25 disabled:opacity-50"
+                  onClick={() => void handleRecalibrarPresetMes()}
+                  disabled={submitting || !selectedBackendPreset}
+                >
+                  Recalibrar preset com MES
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-violet-100/85">
+                {loadingBackendPresets
+                  ? "Carregando presets do backend..."
+                  : `Presets carregados: ${backendPresets.length}`}
+              </p>
+              {selectedBackendPreset && (
+                <p className="mt-1 text-xs text-violet-100/85">
+                  Amostras MES: {selectedBackendPreset.amostras_mes} | Ultima calibracao:{" "}
+                  {formatDateTime(selectedBackendPreset.ultima_calibracao_at)}
+                </p>
               )}
             </div>
             {presetMachine && presetMaterial && presetOperation && (

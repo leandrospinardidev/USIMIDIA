@@ -311,6 +311,61 @@ export interface OrcamentoPdfSimulacao {
   premissas: string[];
 }
 
+export interface OrcamentoPresetOperacaoTemplate {
+  sequencia: number;
+  centro_trabalho_id: number | null;
+  setup_min: string;
+  ciclo_min: string;
+  descricao: string | null;
+}
+
+export interface OrcamentoPresetCnc {
+  id: number;
+  codigo: string;
+  nome: string;
+  descricao: string | null;
+  ativo: boolean;
+  cliente_id: number | null;
+  produto_final_id: number | null;
+  centro_trabalho_id: number | null;
+  fabricante_referencia: string | null;
+  linha_maquina_referencia: string | null;
+  perfil_maquina: string | null;
+  familia_peca: string | null;
+  tipo_peca: string | null;
+  material_referencia: string | null;
+  operacao_principal: string | null;
+  diametro_referencia_mm: string | null;
+  comprimento_referencia_mm: string | null;
+  fator_ciclo: string;
+  fator_setup: string;
+  margem_lucro_pct: string;
+  custo_indireto_pct: string;
+  operacoes_template: OrcamentoPresetOperacaoTemplate[];
+  heuristicas: Record<string, unknown>;
+  amostras_mes: number;
+  tempo_planejado_min_total: string;
+  tempo_real_min_total: string;
+  ultima_calibracao_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrcamentoPresetRecalibracao {
+  preset_id: number;
+  preset_nome: string;
+  janela_dias: number;
+  amostras_utilizadas: number;
+  fator_ciclo_anterior: string;
+  fator_ciclo_novo: string;
+  fator_setup_anterior: string;
+  fator_setup_novo: string;
+  tempo_planejado_min_total: string;
+  tempo_real_min_total: string;
+  desvio_medio_pct: string;
+  ultima_calibracao_at: string;
+}
+
 export interface OrcamentoAnexo {
   id: number;
   orcamento_id: number;
