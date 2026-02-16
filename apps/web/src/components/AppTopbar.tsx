@@ -68,13 +68,31 @@ export function AppTopbar({
             className={`rounded-md px-3 py-2 text-sm font-medium ${
               viewMode === "orcamentos"
                 ? "bg-sky-600 text-white"
-                : "border border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
+                : role === "operador"
+                  ? "cursor-not-allowed border border-slate-800 bg-slate-900 text-slate-500"
+                  : "border border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
             }`}
-            onClick={() => onViewModeChange("orcamentos")}
+            onClick={() => {
+              if (role === "operador") {
+                return;
+              }
+              onViewModeChange("orcamentos");
+            }}
+            disabled={role === "operador"}
+            title={
+              role === "operador"
+                ? "Gerador de orcamentos requer perfil admin, pcp ou compras."
+                : undefined
+            }
           >
             Gerador Orcamentos
           </button>
         </div>
+        {role === "operador" && (
+          <p className="text-xs text-amber-300/80">
+            O gerador de orcamentos exige perfil admin, pcp ou compras.
+          </p>
+        )}
       </div>
     </header>
   );

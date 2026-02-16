@@ -32,6 +32,9 @@ export default function App() {
         viewMode={viewMode}
         onRoleChange={(nextRole) => {
           setRole(nextRole);
+          if (nextRole === "operador" && viewMode === "orcamentos") {
+            setViewMode("mes");
+          }
           setError(null);
           setSuccess(null);
         }}

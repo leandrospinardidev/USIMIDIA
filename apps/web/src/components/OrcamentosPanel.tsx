@@ -94,11 +94,19 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     if (!isActive) {
       return;
     }
+    if (role === "operador") {
+      return;
+    }
     void loadCatalogos();
   }, [isActive, role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isActive) {
+      return;
+    }
+    if (role === "operador") {
+      setOrcamentos([]);
+      setTotal(0);
       return;
     }
     void loadOrcamentos();
@@ -108,6 +116,9 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     if (!produtoId || !isActive) {
       setBoms([]);
       setBomId("");
+      return;
+    }
+    if (role === "operador") {
       return;
     }
     void loadBoms(produtoId);
@@ -366,6 +377,21 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
             }
           : item
       )
+    );
+  }
+
+  if (role === "operador") {
+    return (
+      <main className="mx-auto max-w-7xl px-4 py-4">
+        <section className="rounded-lg border border-amber-600/40 bg-amber-950/20 p-4 text-amber-100">
+          <h2 className="text-base font-semibold">Acesso restrito ao Gerador de Orcamentos</h2>
+          <p className="mt-2 text-sm text-amber-100/90">
+            O perfil <strong>operador</strong> nao possui permissao para este modulo.
+            Troque o perfil no topo para <strong>pcp</strong>, <strong>compras</strong> ou{" "}
+            <strong>admin</strong>.
+          </p>
+        </section>
+      </main>
     );
   }
 
