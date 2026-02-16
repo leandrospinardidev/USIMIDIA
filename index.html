@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OMRAK CNC | Maquinas industriais com visual surreal</title>
+    <meta
+      name="description"
+      content="Nova experiencia OMRAK CNC: maquinas laser CO2 e fibra com design surreal, foco industrial e alta performance."
+    />
+    <meta
+      name="keywords"
+      content="omrak cnc, maquina laser co2, corte e gravacao, maquina industrial, laser fibra"
+    />
+    <meta name="theme-color" content="#0b0a14" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg-scene" aria-hidden="true">
+      <canvas id="starfield"></canvas>
+      <div class="aurora aurora-a"></div>
+      <div class="aurora aurora-b"></div>
+      <div class="grid-warp"></div>
+      <div class="noise-layer"></div>
+    </div>
+
+    <header class="site-header" id="topo">
+      <nav class="nav container" aria-label="Principal">
+        <a class="brand" href="#topo" aria-label="Inicio">
+          <span class="brand-mark">O</span>
+          <span class="brand-text">OMRAK CNC</span>
+        </a>
+        <button
+          class="nav-toggle"
+          aria-expanded="false"
+          aria-controls="menu-principal"
+          aria-label="Abrir menu"
+        >
+          <span></span>
+          <span></span>
+        </button>
+        <div class="nav-links" id="menu-principal">
+          <a href="#maquinas">Maquinas</a>
+          <a href="#diferenciais">Diferenciais</a>
+          <a href="#processo">Processo</a>
+          <a href="#contato">Contato</a>
+          <a
+            class="btn btn-nav"
+            href="https://wa.me/5511999999999"
+            target="_blank"
+            rel="noreferrer"
+            >WhatsApp</a
+          >
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero container">
+        <div class="hero-copy reveal" data-shift="-14">
+          <p class="eyebrow">Fabricacao nacional | Corte e gravacao a laser</p>
+          <h1 class="hero-title glitch" data-text="A industria entrou no sonho.">
+            A industria entrou no sonho.
+          </h1>
+          <p class="hero-text">
+            A nova fase da OMRAK CNC une precisao mecanica com um visual
+            inesquecivel: design surreal, engenharia robusta e suporte tecnico
+            para transformar sua producao em algo fora do comum.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#contato">Quero um orcamento</a>
+            <a class="btn btn-ghost" href="#maquinas">Ver linha de maquinas</a>
+          </div>
+        </div>
+
+        <div class="hero-panel reveal" data-shift="20">
+          <div class="machine-orbit">
+            <article class="orbit-card">
+              <p class="orbit-label">Laser CO2 Industrial</p>
+              <p class="orbit-value">2000 x 1000 mm</p>
+            </article>
+            <article class="orbit-card">
+              <p class="orbit-label">Laser Fibra</p>
+              <p class="orbit-value">Marcacao de alta definicao</p>
+            </article>
+            <article class="orbit-card">
+              <p class="orbit-label">OM-1410</p>
+              <p class="orbit-value">Versatil para escalas medias</p>
+            </article>
+          </div>
+          <div class="hero-stats">
+            <div class="stat">
+              <strong data-count="10">0</strong>
+              <span>Anos de know-how</span>
+            </div>
+            <div class="stat">
+              <strong data-count="1000">0</strong>
+              <span>Projetos entregues</span>
+            </div>
+            <div class="stat">
+              <strong data-count="24">0</strong>
+              <span>Suporte tecnico</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section container reveal" id="maquinas" data-shift="-8">
+        <header class="section-head">
+          <p class="eyebrow">Colecao de maquinas</p>
+          <h2>Modelos para cada tipo de producao</h2>
+        </header>
+        <div class="card-grid">
+          <article class="machine-card">
+            <p class="tag">Corte pesado</p>
+            <h3>Laser CO2 2000 x 1000</h3>
+            <p>
+              Estrutura reforcada para producao industrial continua, com alta
+              estabilidade e acabamento limpo.
+            </p>
+            <ul>
+              <li>Foco automatico</li>
+              <li>Eixo rapido e preciso</li>
+              <li>Controle intuitivo</li>
+            </ul>
+          </article>
+          <article class="machine-card">
+            <p class="tag">Alta versatilidade</p>
+            <h3>Laser CO2 1300 x 900</h3>
+            <p>
+              Tamanho estrategico para marcenaria, comunicacao visual e
+              fabricantes que precisam de flexibilidade.
+            </p>
+            <ul>
+              <li>Setup agil</li>
+              <li>Baixa manutencao</li>
+              <li>Corte e gravacao fina</li>
+            </ul>
+          </article>
+          <article class="machine-card">
+            <p class="tag">Marcacao de precisao</p>
+            <h3>Gravadora Laser Fibra</h3>
+            <p>
+              Gravacao de altissima definicao em metais e materiais tecnicos
+              para rastreabilidade e valor de marca.
+            </p>
+            <ul>
+              <li>Marcacao permanente</li>
+              <li>Alta velocidade</li>
+              <li>Resultado premium</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section
+        class="section section-alt container reveal"
+        id="diferenciais"
+        data-shift="10"
+      >
+        <header class="section-head">
+          <p class="eyebrow">Por que OMRAK CNC</p>
+          <h2>Performance real em cada detalhe</h2>
+        </header>
+        <div class="feature-grid">
+          <article class="feature">
+            <h3>Fabricacao nacional</h3>
+            <p>
+              Maquinas pensadas para a realidade do Brasil, com pecas e suporte
+              tecnico acessiveis.
+            </p>
+          </article>
+          <article class="feature">
+            <h3>Projeto robusto</h3>
+            <p>
+              Estrutura mecanica para turno pesado, mantendo repetibilidade e
+              padrao de corte.
+            </p>
+          </article>
+          <article class="feature">
+            <h3>Atendimento humano</h3>
+            <p>
+              Time de especialistas para orientar desde a escolha ate
+              configuracao e operacao.
+            </p>
+          </article>
+          <article class="feature">
+            <h3>Treinamento e evolucao</h3>
+            <p>
+              Voce nao recebe so a maquina: recebe metodo para acelerar producao
+              e reduzir perdas.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section container reveal" id="processo" data-shift="-10">
+        <header class="section-head">
+          <p class="eyebrow">Fluxo de implantacao</p>
+          <h2>Da ideia ao primeiro corte em 4 etapas</h2>
+        </header>
+        <ol class="timeline">
+          <li>
+            <span>01</span>
+            <div>
+              <h3>Diagnostico tecnico</h3>
+              <p>
+                Entendemos volume, materiais e objetivos para indicar o modelo
+                ideal.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span>02</span>
+            <div>
+              <h3>Configuracao personalizada</h3>
+              <p>
+                Parametros e acessorios ajustados para sua operacao atual e
+                crescimento futuro.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span>03</span>
+            <div>
+              <h3>Entrega e treinamento</h3>
+              <p>
+                Instalacao orientada e treinamento pratico para sua equipe
+                produzir com confianca.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span>04</span>
+            <div>
+              <h3>Suporte continuo</h3>
+              <p>
+                Acompanhamento tecnico para manter desempenho, produtividade e
+                previsibilidade.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section container reveal" id="depoimentos" data-shift="6">
+        <header class="section-head">
+          <p class="eyebrow">Clientes que vivem o resultado</p>
+          <h2>Confianca que se mede na producao</h2>
+        </header>
+        <div class="quote-grid">
+          <blockquote>
+            <p>
+              "A maquina chegou pronta para escalar nossa demanda. O suporte da
+              OMRAK foi direto e muito tecnico."
+            </p>
+            <cite>Industria de comunicacao visual | SP</cite>
+          </blockquote>
+          <blockquote>
+            <p>
+              "Conseguimos elevar acabamento e velocidade ao mesmo tempo. O
+              investimento se pagou rapido."
+            </p>
+            <cite>Moveis planejados | PR</cite>
+          </blockquote>
+          <blockquote>
+            <p>
+              "A gravacao em metal ficou impecavel. Padrao industrial com
+              operacao simples."
+            </p>
+            <cite>Metalurgica | MG</cite>
+          </blockquote>
+        </div>
+      </section>
+
+      <section class="section container contact reveal" id="contato" data-shift="-12">
+        <div class="contact-card">
+          <div>
+            <p class="eyebrow">Pronto para decolar producao?</p>
+            <h2>Solicite seu orcamento OMRAK CNC</h2>
+            <p>
+              Fale com nosso time e receba uma recomendacao tecnica em poucos
+              minutos.
+            </p>
+          </div>
+          <div class="contact-actions">
+            <a
+              class="btn btn-primary"
+              href="https://wa.me/5511999999999"
+              target="_blank"
+              rel="noreferrer"
+              >Conversar no WhatsApp</a
+            >
+            <a class="btn btn-ghost" href="mailto:contato@omrakcnc.com.br"
+              >contato@omrakcnc.com.br</a
+            >
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer container">
+      <p>OMRAK CNC - Maquinas industriais para corte e gravacao a laser.</p>
+      <p>
+        <span id="year"></span> | Todos os direitos reservados | Brasil
+      </p>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
