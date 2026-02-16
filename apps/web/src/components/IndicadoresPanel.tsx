@@ -336,7 +336,7 @@ export function IndicadoresPanel({
                   )}
                   {rastreabilidade.fluxo_retalhos.map((fluxo, index) => (
                     <div key={`${fluxo.lote_origem_id}-${fluxo.lote_retalho_id}-${index}`} className="text-xs">
-                      Lote origem #{fluxo.lote_origem_id} -> Retalho #{fluxo.lote_retalho_id}
+                      Lote origem #{fluxo.lote_origem_id} {"->"} Retalho #{fluxo.lote_retalho_id}
                     </div>
                   ))}
                 </div>
