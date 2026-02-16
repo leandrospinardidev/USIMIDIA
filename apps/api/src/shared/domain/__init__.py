@@ -1,0 +1,1 @@
+"""Objetos de dominio compartilhados."""

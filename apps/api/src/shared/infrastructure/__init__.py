@@ -1,0 +1,1 @@
+"""Recursos de infraestrutura compartilhados."""
