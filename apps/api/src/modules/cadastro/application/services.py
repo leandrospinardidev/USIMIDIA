@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 
 from fastapi import HTTPException, status
@@ -40,10 +40,14 @@ class CrudService(Generic[ModelT]):
             stmt = stmt.where(or_(*filters))
 
         if ativo is not None and hasattr(self.model, "ativo"):
-            stmt = stmt.where(getattr(self.model, "ativo").is_(ativo))
+            stmt = stmt.where(self.model.ativo.is_(ativo))
 
         total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-        stmt = stmt.order_by(getattr(self.model, "id").desc()).offset((page - 1) * page_size).limit(page_size)
+        stmt = (
+            stmt.order_by(self.model.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
         items = list(self.db.scalars(stmt).all())
         return items, total
 
@@ -71,14 +75,14 @@ class CrudService(Generic[ModelT]):
         entity = self.get_or_404(resource_id)
         codigo = payload.get("codigo")
 
-        if codigo and codigo != getattr(entity, "codigo"):
+        if codigo and codigo != entity.codigo:
             self._ensure_codigo_unique(codigo=codigo, exclude_id=resource_id)
 
         for field, value in payload.items():
             setattr(entity, field, value)
 
         if hasattr(entity, "updated_at"):
-            setattr(entity, "updated_at", datetime.now(timezone.utc))
+            entity.updated_at = datetime.now(UTC)
 
         self._commit_or_409()
         self.db.refresh(entity)
@@ -88,17 +92,17 @@ class CrudService(Generic[ModelT]):
         entity = self.get_or_404(resource_id)
 
         if hasattr(entity, "ativo"):
-            setattr(entity, "ativo", False)
+            entity.ativo = False
 
         if hasattr(entity, "updated_at"):
-            setattr(entity, "updated_at", datetime.now(timezone.utc))
+            entity.updated_at = datetime.now(UTC)
 
         self._commit_or_409()
 
     def _ensure_codigo_unique(self, *, codigo: str, exclude_id: int | None = None) -> None:
-        stmt = select(getattr(self.model, "id")).where(getattr(self.model, "codigo") == codigo)
+        stmt = select(self.model.id).where(self.model.codigo == codigo)
         if exclude_id is not None:
-            stmt = stmt.where(getattr(self.model, "id") != exclude_id)
+            stmt = stmt.where(self.model.id != exclude_id)
 
         already_exists = self.db.scalar(stmt)
         if already_exists is not None:

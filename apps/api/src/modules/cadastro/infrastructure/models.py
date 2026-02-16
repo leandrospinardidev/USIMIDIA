@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Integer, Numeric, String, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Integer,
+    Numeric,
+    String,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database import Base
@@ -27,7 +36,12 @@ class ClienteModel(Base):
     cnpj_cpf: Mapped[str | None] = mapped_column(String(20), unique=True)
     email: Mapped[str | None] = mapped_column(String(150))
     telefone: Mapped[str | None] = mapped_column(String(30))
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    ativo: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -60,14 +74,24 @@ class InsumoModel(Base):
     custo_unitario: Mapped[Decimal] = mapped_column(
         Numeric(14, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
-    controla_lote: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    controla_lote: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
     largura_mm: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     altura_mm: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     espessura_mm: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
     estoque_minimo: Mapped[Decimal] = mapped_column(
         Numeric(14, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    ativo: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -83,7 +107,8 @@ class CentroTrabalhoModel(Base):
     __tablename__ = "centros_de_trabalho"
     __table_args__ = (
         CheckConstraint(
-            "tipo_maquina IN ('ROUTER_CNC','LASER_CO2','TORNO_CNC','FRESA_CNC','MONTAGEM','INSPECAO')",
+            "tipo_maquina IN "
+            "('ROUTER_CNC','LASER_CO2','TORNO_CNC','FRESA_CNC','MONTAGEM','INSPECAO')",
             name="ck_centros_tipo_maquina",
         ),
     )
@@ -93,11 +118,21 @@ class CentroTrabalhoModel(Base):
     nome: Mapped[str] = mapped_column(String(120), nullable=False)
     tipo_maquina: Mapped[str] = mapped_column(String(30), nullable=False)
     taxa_horaria: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    setup_padrao_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    setup_padrao_min: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     capacidade_horas_dia: Mapped[Decimal] = mapped_column(
         Numeric(6, 2), nullable=False, default=Decimal("8"), server_default="8"
     )
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    ativo: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -121,12 +156,27 @@ class ProdutoFinalModel(Base):
     id: Mapped[int] = _bigint_pk()
     codigo: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
     descricao: Mapped[str] = mapped_column(String(200), nullable=False)
-    revisao_atual: Mapped[str] = mapped_column(String(10), nullable=False, default="A", server_default="A")
-    unidade_medida: Mapped[str] = mapped_column(String(10), nullable=False, default="UN", server_default="UN")
+    revisao_atual: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="A",
+        server_default="A",
+    )
+    unidade_medida: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="UN",
+        server_default="UN",
+    )
     margem_lucro_padrao_pct: Mapped[Decimal] = mapped_column(
         Numeric(6, 2), nullable=False, default=Decimal("30"), server_default="30"
     )
-    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    ativo: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
