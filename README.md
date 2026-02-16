@@ -14,12 +14,21 @@ Base inicial do ERP web para controle de usinagem CNC, montagem e chao de fabric
 ## Documentos recomendados
 
 - `docs/processos/playbook-operacao-api-e-go-live.md`
+- `docs/processos/deploy-vps-nginx.md`
 - `docs/arquitetura/roadmap-frontend.md`
 
 ## Subir ambiente local
 
 ```bash
 docker compose -f infra/docker/docker-compose.yml up --build
+```
+
+## Subir ambiente de producao (compose)
+
+```bash
+cd infra/docker
+cp env.prod.example .env.prod
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
 ## Rodar migrations
