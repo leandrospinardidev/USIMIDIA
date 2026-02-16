@@ -1,10 +1,13 @@
 import type {
   Apontamento,
   EventoMES,
+  IndicadorOrdemItem,
+  KpisGerais,
   OrdemDetail,
   OrdemListItem,
   PaginatedResponse,
   Refugo,
+  RastreabilidadeOrdem,
   ResumoTempo,
   UserRole,
 } from "./types";
@@ -66,15 +69,17 @@ interface ListOrdensFilters {
   status?: string;
 }
 
-function toQuery(filters: ListOrdensFilters): string {
+function toQuery(filters: Record<string, string | number | undefined>): string {
   const params = new URLSearchParams();
-  params.set("page", String(filters.page));
-  params.set("page_size", String(filters.pageSize));
-  if (filters.search?.trim()) {
-    params.set("search", filters.search.trim());
-  }
-  if (filters.status?.trim()) {
-    params.set("status", filters.status.trim());
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    const normalized = String(value).trim();
+    if (!normalized) {
+      continue;
+    }
+    params.set(key, normalized);
   }
   return params.toString();
 }
@@ -83,8 +88,14 @@ export async function listOrdens(
   role: UserRole,
   filters: ListOrdensFilters
 ): Promise<PaginatedResponse<OrdemListItem>> {
+  const query = toQuery({
+    page: filters.page,
+    page_size: filters.pageSize,
+    search: filters.search,
+    status: filters.status,
+  });
   return apiRequest<PaginatedResponse<OrdemListItem>>(
-    `/ordens-producao?${toQuery(filters)}`,
+    `/ordens-producao?${query}`,
     { role }
   );
 }
@@ -158,6 +169,54 @@ export async function getResumoTempoMes(
     `/mes-apontamentos/operacoes/${ordemOperacaoId}/resumo-tempo`,
     { role }
   );
+}
+
+interface IndicadoresFilters {
+  page: number;
+  pageSize: number;
+  search?: string;
+  status?: string;
+  periodoInicio?: string;
+  periodoFim?: string;
+}
+
+export async function getIndicadoresKpis(
+  role: UserRole,
+  filters: Omit<IndicadoresFilters, "page" | "pageSize" | "search">
+): Promise<KpisGerais> {
+  const query = toQuery({
+    periodo_inicio: filters.periodoInicio,
+    periodo_fim: filters.periodoFim,
+    status: filters.status,
+  });
+  return apiRequest<KpisGerais>(`/indicadores/kpis?${query}`, { role });
+}
+
+export async function listIndicadoresOrdens(
+  role: UserRole,
+  filters: IndicadoresFilters
+): Promise<PaginatedResponse<IndicadorOrdemItem>> {
+  const query = toQuery({
+    page: filters.page,
+    page_size: filters.pageSize,
+    search: filters.search,
+    status: filters.status,
+    periodo_inicio: filters.periodoInicio,
+    periodo_fim: filters.periodoFim,
+  });
+  return apiRequest<PaginatedResponse<IndicadorOrdemItem>>(
+    `/indicadores/ordens?${query}`,
+    { role }
+  );
+}
+
+export async function getRastreabilidadeOrdem(
+  role: UserRole,
+  ordemId: number
+): Promise<RastreabilidadeOrdem> {
+  return apiRequest<RastreabilidadeOrdem>(`/indicadores/rastreabilidade/ordens/${ordemId}`, {
+    role,
+  });
 }
 
 export { ApiError };
