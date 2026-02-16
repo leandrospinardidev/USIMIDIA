@@ -5,10 +5,16 @@ Base inicial do ERP web para controle de usinagem CNC, montagem e chao de fabric
 ## Estrutura
 
 - `apps/api`: backend FastAPI
+- `apps/web`: frontend web (roadmap pronto, implementacao pendente)
 - `db/migrations`: migrations Alembic
 - `db/ddl`: referencia de DDL
 - `infra/docker`: docker compose para desenvolvimento local
 - `docs`: documentos de arquitetura e banco
+
+## Documentos recomendados
+
+- `docs/processos/playbook-operacao-api-e-go-live.md`
+- `docs/arquitetura/roadmap-frontend.md`
 
 ## Subir ambiente local
 
