@@ -15,8 +15,10 @@ import {
 } from "../api";
 import {
   CNC_MACHINE_PRESETS,
+  CNC_MANUFACTURER_PROFILES,
   CNC_MATERIAL_PRESETS,
   CNC_OPERATION_PRESETS,
+  CNC_PIECE_FAMILIES,
   type CncPieceType,
   buildAutoStrategyPlan,
   calculateCycleMinFromPreset,
@@ -95,9 +97,13 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
   const [fileToUpload, setFileToUpload] = useState<File | null>(null);
   const [fileObs, setFileObs] = useState("");
   const [showSavedModule, setShowSavedModule] = useState(false);
+  const [manufacturerProfileId, setManufacturerProfileId] = useState(
+    CNC_MANUFACTURER_PROFILES[0]?.id ?? ""
+  );
   const [presetMachineId, setPresetMachineId] = useState(CNC_MACHINE_PRESETS[1]?.id ?? "");
   const [presetMaterialId, setPresetMaterialId] = useState(CNC_MATERIAL_PRESETS[0]?.id ?? "");
   const [presetOperationId, setPresetOperationId] = useState(CNC_OPERATION_PRESETS[0]?.id ?? "");
+  const [pieceFamilyId, setPieceFamilyId] = useState(CNC_PIECE_FAMILIES[0]?.id ?? "");
   const [pieceType, setPieceType] = useState<CncPieceType>("EIXO");
   const [pieceDiametroMm, setPieceDiametroMm] = useState("");
   const [pieceComprimentoMm, setPieceComprimentoMm] = useState("");
@@ -133,12 +139,27 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     () => CNC_OPERATION_PRESETS.find((item) => item.id === presetOperationId) ?? CNC_OPERATION_PRESETS[0],
     [presetOperationId]
   );
+  const manufacturerProfile = useMemo(
+    () =>
+      CNC_MANUFACTURER_PROFILES.find((item) => item.id === manufacturerProfileId) ??
+      CNC_MANUFACTURER_PROFILES[0],
+    [manufacturerProfileId]
+  );
+  const pieceFamily = useMemo(
+    () => CNC_PIECE_FAMILIES.find((item) => item.id === pieceFamilyId) ?? CNC_PIECE_FAMILIES[0],
+    [pieceFamilyId]
+  );
   const presetCycleMin = useMemo(() => {
     if (!presetMachine || !presetMaterial || !presetOperation) {
       return "8.00";
     }
-    return calculateCycleMinFromPreset(presetMachine, presetMaterial, presetOperation);
-  }, [presetMachine, presetMaterial, presetOperation]);
+    return calculateCycleMinFromPreset(
+      presetMachine,
+      presetMaterial,
+      presetOperation,
+      manufacturerProfile
+    );
+  }, [presetMachine, presetMaterial, presetOperation, manufacturerProfile]);
   const autoStrategyPlan = useMemo(() => {
     if (!presetMachine || !presetMaterial) {
       return null;
@@ -146,11 +167,21 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     return buildAutoStrategyPlan({
       machinePreset: presetMachine,
       materialPreset: presetMaterial,
-      pieceType,
+      pieceType: pieceFamily?.pieceType ?? pieceType,
+      pieceFamily,
+      manufacturerProfile,
       diametroMm: pieceDiametroMm ? Number(pieceDiametroMm) : null,
       comprimentoMm: pieceComprimentoMm ? Number(pieceComprimentoMm) : null,
     });
-  }, [presetMachine, presetMaterial, pieceType, pieceDiametroMm, pieceComprimentoMm]);
+  }, [
+    presetMachine,
+    presetMaterial,
+    pieceType,
+    pieceFamily,
+    manufacturerProfile,
+    pieceDiametroMm,
+    pieceComprimentoMm,
+  ]);
 
   useEffect(() => {
     if (!isActive) {
@@ -188,6 +219,19 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     }
     void loadBoms(produtoId);
   }, [produtoId, isActive, role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!pieceFamily) {
+      return;
+    }
+    setPieceType(pieceFamily.pieceType);
+    if (!pieceDiametroMm) {
+      setPieceDiametroMm(String(pieceFamily.default_diametro_mm));
+    }
+    if (!pieceComprimentoMm) {
+      setPieceComprimentoMm(String(pieceFamily.default_comprimento_mm));
+    }
+  }, [pieceFamily]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadCatalogos(): Promise<void> {
     setLoadingCatalogos(true);
@@ -537,7 +581,11 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       operacaoPrincipal.centro_trabalho_id !== ""
         ? centros.find((centro) => centro.id === Number(operacaoPrincipal.centro_trabalho_id)) ?? null
         : null;
-    const suggestedCenter = suggestCentroForMachinePreset(centros, presetMachine);
+    const suggestedCenter = suggestCentroForMachinePreset(
+      centros,
+      presetMachine,
+      manufacturerProfile
+    );
     const chosenCenter = currentCenter ?? suggestedCenter;
 
     if (!chosenCenter) {
@@ -545,7 +593,12 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       return;
     }
 
-    const suggestedSetup = calculateSetupMinFromPreset(presetMachine, presetOperation, chosenCenter);
+    const suggestedSetup = calculateSetupMinFromPreset(
+      presetMachine,
+      presetOperation,
+      chosenCenter,
+      manufacturerProfile
+    );
     const suggestedMargin = Math.max(
       presetMachine.margem_lucro_pct,
       presetMaterial.margem_lucro_pct,
@@ -577,11 +630,16 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     }
     setCustoIndiretoPct(String(suggestedIndirect));
     setObservacao((prev) =>
-      upsertPresetNote(prev, presetMachine.nome, presetMaterial.nome, presetOperation.nome)
+      upsertPresetNote(
+        prev,
+        `${presetMachine.nome} / ${manufacturerProfile?.nome ?? "fabricante padrao"}`,
+        presetMaterial.nome,
+        `${presetOperation.nome} / ${pieceFamily?.nome ?? pieceType}`
+      )
     );
     onError(null);
     onSuccess(
-      `Preset CNC aplicado: ${presetOperation.nome} em ${presetMaterial.nome} (${chosenCenter.codigo}).`
+      `Preset CNC aplicado: ${presetOperation.nome} em ${presetMaterial.nome} (${chosenCenter.codigo}) usando ${manufacturerProfile?.nome ?? "perfil base"}.`
     );
   }
 
@@ -595,7 +653,11 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       return;
     }
 
-    const suggestedCenter = suggestCentroForMachinePreset(centros, presetMachine);
+    const suggestedCenter = suggestCentroForMachinePreset(
+      centros,
+      presetMachine,
+      manufacturerProfile
+    );
     if (!suggestedCenter) {
       onError("Nao foi encontrado centro compativel para estrategia automatica.");
       return;
@@ -624,13 +686,13 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
             !line.startsWith(PRESET_NOTE_TAG) &&
             !line.startsWith(AUTO_STRATEGY_NOTE_TAG)
         );
-      const autoNote = `${AUTO_STRATEGY_NOTE_TAG} ${pieceType} | D=${pieceDiametroMm || "-"} mm | L=${pieceComprimentoMm || "-"} mm | furos~${autoStrategyPlan.furosEstimados}`;
-      const presetNote = `${PRESET_NOTE_TAG} ${presetMachine.nome} | ${presetMaterial.nome} | estrategia 3 operacoes`;
+      const autoNote = `${AUTO_STRATEGY_NOTE_TAG} ${pieceFamily?.nome ?? pieceType} | D=${pieceDiametroMm || "-"} mm | L=${pieceComprimentoMm || "-"} mm | furos~${autoStrategyPlan.furosEstimados}`;
+      const presetNote = `${PRESET_NOTE_TAG} ${presetMachine.nome} / ${manufacturerProfile?.nome ?? "-"} | ${presetMaterial.nome} | estrategia ${autoStrategyPlan.operations.length} operacoes`;
       return [...filtered, autoNote, presetNote].join("\n");
     });
     onError(null);
     onSuccess(
-      `Estrategia automatica aplicada: desbaste + acabamento + furacao em ${suggestedCenter.codigo}.`
+      `Estrategia automatica aplicada para ${pieceFamily?.nome ?? pieceType} em ${suggestedCenter.codigo}.`
     );
   }
 
@@ -675,12 +737,26 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
           </div>
           <div className="mb-4 rounded-lg border border-cyan-700/40 bg-cyan-950/20 p-3">
             <h3 className="mb-1 text-sm font-semibold text-cyan-200">
-              Pre-definicoes CNC de mercado (V2)
+              Pre-definicoes CNC de mercado (V3)
             </h3>
             <p className="mb-3 text-xs text-cyan-100/85">
-              Agora com tipo de peca e estrategia automatica (desbaste + acabamento + furacao).
+              V3: biblioteca por fabricante + familia de peca + estrategia automatica multi-operacao.
             </p>
-            <div className="grid gap-2 md:grid-cols-3">
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-5">
+              <label className="grid gap-1 text-xs">
+                <span className="text-slate-300">Fabricante / linha</span>
+                <select
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={manufacturerProfileId}
+                  onChange={(event) => setManufacturerProfileId(event.target.value)}
+                >
+                  {CNC_MANUFACTURER_PROFILES.map((maker) => (
+                    <option key={maker.id} value={maker.id}>
+                      {maker.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="grid gap-1 text-xs">
                 <span className="text-slate-300">Perfil de maquina</span>
                 <select
@@ -691,6 +767,20 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                   {CNC_MACHINE_PRESETS.map((machine) => (
                     <option key={machine.id} value={machine.id}>
                       {machine.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs">
+                <span className="text-slate-300">Familia de peca</span>
+                <select
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={pieceFamilyId}
+                  onChange={(event) => setPieceFamilyId(event.target.value)}
+                >
+                  {CNC_PIECE_FAMILIES.map((family) => (
+                    <option key={family.id} value={family.id}>
+                      {family.nome}
                     </option>
                   ))}
                 </select>
@@ -736,7 +826,15 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                 Ciclo sug.: <strong>{formatNumber(presetCycleMin, 2)} min</strong> | Setup sug.:{" "}
                 <strong>
                   {presetMachine && presetOperation
-                    ? formatNumber(calculateSetupMinFromPreset(presetMachine, presetOperation), 2)
+                    ? formatNumber(
+                        calculateSetupMinFromPreset(
+                          presetMachine,
+                          presetOperation,
+                          undefined,
+                          manufacturerProfile
+                        ),
+                        2
+                      )
                     : "-"}{" "}
                   min
                 </strong>
@@ -746,6 +844,10 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-200">
                 Estrategia automatica por tipo de peca
               </h4>
+              <p className="mb-2 text-xs text-cyan-100/85">
+                Familia ativa: <strong>{pieceFamily?.nome ?? "-"}</strong> | Fabricante:{" "}
+                <strong>{manufacturerProfile?.nome ?? "-"}</strong>
+              </p>
               <div className="grid gap-2 md:grid-cols-3">
                 <label className="grid gap-1 text-xs">
                   <span className="text-slate-300">Tipo de peca</span>
@@ -787,6 +889,21 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-900/25"
+                  onClick={() => {
+                    if (!pieceFamily) {
+                      return;
+                    }
+                    setPieceType(pieceFamily.pieceType);
+                    setPieceDiametroMm(String(pieceFamily.default_diametro_mm));
+                    setPieceComprimentoMm(String(pieceFamily.default_comprimento_mm));
+                    onSuccess(`Dimensoes padrao aplicadas para a familia ${pieceFamily.nome}.`);
+                  }}
+                >
+                  Aplicar dimensoes padrao da familia
+                </button>
+                <button
+                  type="button"
                   className="rounded-md border border-emerald-600 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-900/25"
                   onClick={handleApplyAutoStrategy}
                 >
@@ -796,7 +913,8 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                   <p className="text-xs text-emerald-100/90">
                     Fator dim.: <strong>{formatNumber(autoStrategyPlan.dimensionFactor, 2)}</strong> |
                     Furos estimados: <strong>{autoStrategyPlan.furosEstimados}</strong> | Margem:{" "}
-                    <strong>{formatNumber(autoStrategyPlan.suggestedMarginPct, 0)}%</strong>
+                    <strong>{formatNumber(autoStrategyPlan.suggestedMarginPct, 0)}%</strong> |
+                    Indireto: <strong>{formatNumber(autoStrategyPlan.suggestedIndirectPct, 0)}%</strong>
                   </p>
                 )}
               </div>
@@ -817,7 +935,9 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
             {presetMachine && presetMaterial && presetOperation && (
               <div className="mt-2 rounded border border-cyan-900/40 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
                 <p>
-                  {presetMachine.descricao} | Material {presetMaterial.liga_ref} (Vc{" "}
+                  {presetMachine.descricao} | Fabricante:{" "}
+                  {manufacturerProfile?.fabricante ?? "-"} ({manufacturerProfile?.linha_referencia ?? "-"}) | Familia:{" "}
+                  {pieceFamily?.nome ?? "-"} | Material {presetMaterial.liga_ref} (Vc{" "}
                   {presetMaterial.vc_referencia_m_min} m/min, fz{" "}
                   {presetMaterial.fz_referencia_mm_dente} mm/dente) | Operacao:{" "}
                   {presetOperation.descricao}
