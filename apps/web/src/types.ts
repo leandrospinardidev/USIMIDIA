@@ -270,6 +270,37 @@ export interface OrcamentoSimulacao {
   operacoes: OrcamentoOperacaoResultado[];
 }
 
+export interface OrcamentoPdfLeitura {
+  material_inferido: string | null;
+  quantidade_inferida: number | null;
+  quantidade_considerada: number;
+  diametros_mm: string[];
+  comprimento_mm: string | null;
+  confianca: "BAIXA" | "MEDIA" | "ALTA" | string;
+  texto_resumo: string;
+}
+
+export interface OrcamentoPdfCustos {
+  centro_trabalho_id: number;
+  centro_codigo: string;
+  centro_nome: string;
+  taxa_horaria: string;
+  horas_maquina_estimadas_unit: string;
+  custo_material_unitario: string;
+  custo_material_total: string;
+  custo_maquina_total: string;
+  custo_indireto_total: string;
+  custo_total: string;
+  margem_lucro_pct: string;
+  preco_venda_sugerido: string;
+}
+
+export interface OrcamentoPdfSimulacao {
+  leitura: OrcamentoPdfLeitura;
+  custos: OrcamentoPdfCustos;
+  premissas: string[];
+}
+
 export interface OrcamentoAnexo {
   id: number;
   orcamento_id: number;

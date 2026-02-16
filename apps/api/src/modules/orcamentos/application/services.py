@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +14,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+try:
+    from pypdf import PdfReader
+except Exception:  # noqa: BLE001
+    PdfReader = None
 
 from core.config import get_settings
 from modules.cadastro.infrastructure.models import (
@@ -42,6 +50,28 @@ ALLOWED_ANEXO_EXTENSIONS = {
     ".jpeg",
 }
 MAX_ANEXO_SIZE_BYTES = 25 * 1024 * 1024
+MATERIAL_PRECO_KG: dict[str, Decimal] = {
+    "ACO CARBONO": Decimal("9.50"),
+    "ACO INOX": Decimal("24.00"),
+    "ALUMINIO": Decimal("21.00"),
+    "LATON": Decimal("38.00"),
+    "BRONZE": Decimal("45.00"),
+    "FOFO NODULAR": Decimal("12.00"),
+    "FOFO GG20": Decimal("11.00"),
+}
+MATERIAL_DENSIDADE_G_CM3: dict[str, Decimal] = {
+    "ACO CARBONO": Decimal("7.85"),
+    "ACO INOX": Decimal("7.90"),
+    "ALUMINIO": Decimal("2.70"),
+    "LATON": Decimal("8.50"),
+    "BRONZE": Decimal("8.80"),
+    "FOFO NODULAR": Decimal("7.20"),
+    "FOFO GG20": Decimal("7.10"),
+}
+RE_DIM_X = re.compile(r"(\d{1,5}(?:[.,]\d+)?)\s*[xX]\s*(\d{1,5}(?:[.,]\d+)?)")
+RE_DIAMETRO = re.compile(r"(?:Ø|DIAMETRO|DIA)[\s:]*([0-9]{1,4}(?:[.,][0-9]+)?)")
+RE_H7 = re.compile(r"([0-9]{1,4}(?:[.,][0-9]+)?)\s*H[0-9]{1,2}")
+RE_QUANTIDADE = re.compile(r"(?:QTD|QTDE|QUANTIDADE)[\s:=]+([0-9]{1,4})")
 
 
 class OrcamentosService:
@@ -112,6 +142,95 @@ class OrcamentosService:
             "preco_venda": preco_venda,
             "materiais": materiais,
             "operacoes": operacoes,
+        }
+
+    def simulate_from_pdf(
+        self,
+        *,
+        centro_trabalho_id: int,
+        file_name: str,
+        file_bytes: bytes,
+        margem_lucro_pct: str | None,
+        custo_indireto_fixo: str | None,
+        custo_indireto_pct: str | None,
+        quantidade_override: int | None,
+    ) -> dict[str, Any]:
+        if Path(file_name).suffix.lower() != ".pdf":
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Para simulacao automatica, envie um arquivo PDF de desenho tecnico.",
+            )
+        if not file_bytes:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Arquivo PDF vazio.",
+            )
+        if len(file_bytes) > MAX_ANEXO_SIZE_BYTES:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Arquivo PDF excede o limite de 25MB.",
+            )
+
+        centro = self._ensure_centro_exists(centro_trabalho_id)
+        margem = self._to_decimal(margem_lucro_pct or "30", "margem_lucro_pct")
+        custo_ind_fixo = self._to_decimal(custo_indireto_fixo or "0", "custo_indireto_fixo")
+        custo_ind_pct = self._to_decimal(custo_indireto_pct or "0", "custo_indireto_pct")
+        self._validate_non_negative("margem_lucro_pct", margem)
+        self._validate_non_negative("custo_indireto_fixo", custo_ind_fixo)
+        self._validate_non_negative("custo_indireto_pct", custo_ind_pct)
+        if quantidade_override is not None and quantidade_override <= 0:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="quantidade_override deve ser maior que zero.",
+            )
+
+        texto_extraido = self._extract_pdf_text(file_bytes)
+        inferencia = self._infer_pdf_desenho(
+            texto_extraido,
+            quantidade_override=quantidade_override,
+        )
+
+        custo_material_unitario = self._estimate_material_unit_cost(inferencia)
+        quantidade = Decimal(inferencia["quantidade_considerada"])
+        custo_material_total = custo_material_unitario * quantidade
+
+        horas_maquina_unit = self._estimate_machine_hours_unit(
+            inferencia=inferencia,
+            setup_padrao_min=Decimal(centro.setup_padrao_min or 0),
+        )
+        taxa_horaria = Decimal(centro.taxa_horaria)
+        custo_maquina_total = horas_maquina_unit * taxa_horaria * quantidade
+        custo_indireto_total = custo_ind_fixo + (
+            (custo_material_total + custo_maquina_total) * (custo_ind_pct / Decimal("100"))
+        )
+        custo_total = custo_material_total + custo_maquina_total + custo_indireto_total
+        preco_venda = custo_total * (Decimal("1") + (margem / Decimal("100")))
+
+        return {
+            "leitura": {
+                "material_inferido": inferencia["material_inferido"],
+                "quantidade_inferida": inferencia["quantidade_inferida"],
+                "quantidade_considerada": inferencia["quantidade_considerada"],
+                "diametros_mm": inferencia["diametros_mm"],
+                "comprimento_mm": inferencia["comprimento_mm"],
+                "confianca": inferencia["confianca"],
+                "texto_resumo": inferencia["texto_resumo"],
+            },
+            "custos": {
+                "centro_trabalho_id": centro.id,
+                "centro_codigo": centro.codigo,
+                "centro_nome": centro.nome,
+                "taxa_horaria": taxa_horaria,
+                "horas_maquina_estimadas_unit": horas_maquina_unit,
+                "custo_material_unitario": custo_material_unitario,
+                "custo_material_total": custo_material_total,
+                "custo_maquina_total": custo_maquina_total,
+                "custo_indireto_total": custo_indireto_total,
+                "custo_total": custo_total,
+                "margem_lucro_pct": margem,
+                "preco_venda_sugerido": preco_venda,
+            },
+            "premissas": inferencia["premissas"],
         }
 
     def create_orcamento(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -466,6 +585,152 @@ class OrcamentosService:
                 )
             )
         return versao_model
+
+    def _extract_pdf_text(self, file_bytes: bytes) -> str:
+        if PdfReader is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Leitura de PDF indisponivel no servidor.",
+            )
+        try:
+            reader = PdfReader(BytesIO(file_bytes))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="PDF invalido ou corrompido.",
+            ) from exc
+        texts: list[str] = []
+        for page in reader.pages:
+            page_text = (page.extract_text() or "").strip()
+            if page_text:
+                texts.append(page_text)
+        return "\n".join(texts).strip()
+
+    def _infer_pdf_desenho(
+        self,
+        text: str,
+        *,
+        quantidade_override: int | None,
+    ) -> dict[str, Any]:
+        normalized = self._normalize_for_search(text)
+        quantidade_match = RE_QUANTIDADE.search(normalized)
+        quantidade_inferida = int(quantidade_match.group(1)) if quantidade_match else None
+        quantidade_considerada = quantidade_override or quantidade_inferida or 1
+
+        diametros_raw = RE_DIAMETRO.findall(normalized) + RE_H7.findall(normalized)
+        diametros_mm = sorted(
+            {
+                self._to_decimal(number.replace(",", "."), "diametro_mm")
+                for number in diametros_raw
+                if number.strip()
+            }
+        )
+
+        comprimento_mm: Decimal | None = None
+        dims_raw = RE_DIM_X.findall(normalized)
+        if dims_raw:
+            dim_candidates: list[Decimal] = []
+            for first, second in dims_raw:
+                dim_candidates.extend(
+                    [
+                        self._to_decimal(first.replace(",", "."), "dimensao_pdf"),
+                        self._to_decimal(second.replace(",", "."), "dimensao_pdf"),
+                    ]
+                )
+            if dim_candidates:
+                comprimento_mm = max(dim_candidates)
+
+        material_inferido = None
+        for keyword in MATERIAL_PRECO_KG:
+            if keyword in normalized:
+                material_inferido = keyword
+                break
+
+        confidence_score = 0
+        if material_inferido:
+            confidence_score += 1
+        if quantidade_inferida is not None:
+            confidence_score += 1
+        if diametros_mm:
+            confidence_score += 1
+        if comprimento_mm is not None:
+            confidence_score += 1
+
+        if confidence_score >= 3:
+            confianca = "ALTA"
+        elif confidence_score == 2:
+            confianca = "MEDIA"
+        else:
+            confianca = "BAIXA"
+
+        texto_resumo = " ".join(text.split())[:600] if text else "PDF sem texto extraivel."
+        premissas: list[str] = []
+        if not material_inferido:
+            premissas.append("Material nao identificado no PDF. Padrao usado: ACO CARBONO.")
+        if not diametros_mm:
+            premissas.append("Diametros nao identificados. Diametro de referencia padrao: 50 mm.")
+        if comprimento_mm is None:
+            premissas.append("Comprimento nao identificado. Comprimento padrao: 100 mm.")
+        if quantidade_inferida is None and quantidade_override is None:
+            premissas.append("Quantidade nao identificada. Quantidade considerada: 1.")
+        if not text:
+            premissas.append("PDF pode ser imagem escaneada sem OCR; leitura textual limitada.")
+
+        return {
+            "material_inferido": material_inferido,
+            "quantidade_inferida": quantidade_inferida,
+            "quantidade_considerada": quantidade_considerada,
+            "diametros_mm": diametros_mm,
+            "comprimento_mm": comprimento_mm,
+            "confianca": confianca,
+            "texto_resumo": texto_resumo,
+            "premissas": premissas,
+        }
+
+    def _estimate_material_unit_cost(self, inferencia: dict[str, Any]) -> Decimal:
+        material = inferencia.get("material_inferido") or "ACO CARBONO"
+        preco_kg = MATERIAL_PRECO_KG.get(material, Decimal("9.50"))
+        densidade = MATERIAL_DENSIDADE_G_CM3.get(material, Decimal("7.85"))
+
+        diametros: list[Decimal] = inferencia.get("diametros_mm") or []
+        diametro_ref = max(diametros) if diametros else Decimal("50")
+        comprimento_mm = inferencia.get("comprimento_mm") or Decimal("100")
+
+        pi = Decimal("3.14159265")
+        raio_mm = diametro_ref / Decimal("2")
+        volume_mm3 = pi * raio_mm * raio_mm * comprimento_mm
+        volume_cm3 = volume_mm3 / Decimal("1000")
+        massa_kg = (volume_cm3 * densidade) / Decimal("1000")
+        if massa_kg <= 0:
+            massa_kg = Decimal("1")
+        custo = massa_kg * preco_kg
+        return custo.quantize(Decimal("0.0001"))
+
+    def _estimate_machine_hours_unit(
+        self,
+        *,
+        inferencia: dict[str, Any],
+        setup_padrao_min: Decimal,
+    ) -> Decimal:
+        quantidade = Decimal(inferencia["quantidade_considerada"])
+        diametros_count = max(1, len(inferencia.get("diametros_mm") or []))
+        comprimento_mm = inferencia.get("comprimento_mm") or Decimal("100")
+
+        setup_h_por_unidade = (setup_padrao_min / Decimal("60")) / quantidade
+        complexidade_h = Decimal(diametros_count) * Decimal("0.03")
+        percurso_h = (Decimal(comprimento_mm) / Decimal("1000")) * Decimal("0.12")
+        base_h = Decimal("0.05")
+        horas = base_h + setup_h_por_unidade + complexidade_h + percurso_h
+        if horas < Decimal("0.08"):
+            horas = Decimal("0.08")
+        return horas.quantize(Decimal("0.0001"))
+
+    def _normalize_for_search(self, text: str) -> str:
+        if not text:
+            return ""
+        text_nfkd = unicodedata.normalize("NFKD", text)
+        ascii_text = text_nfkd.encode("ASCII", "ignore").decode("ASCII")
+        return ascii_text.upper()
 
     def _upload_root_path(self) -> Path:
         settings = get_settings()

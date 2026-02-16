@@ -94,6 +94,37 @@ class OrcamentoSimulacaoResponse(SchemaBase):
     operacoes: list[OrcamentoOperacaoResultado]
 
 
+class OrcamentoPdfLeituraResumo(SchemaBase):
+    material_inferido: str | None
+    quantidade_inferida: int | None
+    quantidade_considerada: int
+    diametros_mm: list[Decimal]
+    comprimento_mm: Decimal | None
+    confianca: str
+    texto_resumo: str
+
+
+class OrcamentoPdfCustosResumo(SchemaBase):
+    centro_trabalho_id: int
+    centro_codigo: str
+    centro_nome: str
+    taxa_horaria: Decimal
+    horas_maquina_estimadas_unit: Decimal
+    custo_material_unitario: Decimal
+    custo_material_total: Decimal
+    custo_maquina_total: Decimal
+    custo_indireto_total: Decimal
+    custo_total: Decimal
+    margem_lucro_pct: Decimal
+    preco_venda_sugerido: Decimal
+
+
+class OrcamentoPdfSimulacaoResponse(SchemaBase):
+    leitura: OrcamentoPdfLeituraResumo
+    custos: OrcamentoPdfCustosResumo
+    premissas: list[str]
+
+
 class OrcamentoVersaoResponse(SchemaBase):
     id: int
     versao: int

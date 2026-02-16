@@ -14,6 +14,7 @@ from modules.orcamentos.presentation.schemas import (
     OrcamentoAnexoResponse,
     OrcamentoCreate,
     OrcamentoListResponse,
+    OrcamentoPdfSimulacaoResponse,
     OrcamentoResponse,
     OrcamentoSimulacaoResponse,
     OrcamentoStatus,
@@ -57,6 +58,29 @@ def simular_orcamento(_: WritePermission, db: DbSession, payload: OrcamentoCreat
         exclude_unset=True,
     )
     return _service(db).simulate(simulation_payload)
+
+
+@router.post("/simulacoes/pdf", response_model=OrcamentoPdfSimulacaoResponse)
+async def simular_orcamento_por_pdf(
+    _: WritePermission,
+    db: DbSession,
+    centro_trabalho_id: Annotated[int, Form()],
+    file: Annotated[UploadFile, File(...)],
+    margem_lucro_pct: Annotated[str | None, Form()] = None,
+    custo_indireto_fixo: Annotated[str | None, Form()] = None,
+    custo_indireto_pct: Annotated[str | None, Form()] = None,
+    quantidade_override: Annotated[int | None, Form()] = None,
+):
+    content = await file.read()
+    return _service(db).simulate_from_pdf(
+        centro_trabalho_id=centro_trabalho_id,
+        file_name=file.filename or "",
+        file_bytes=content,
+        margem_lucro_pct=margem_lucro_pct,
+        custo_indireto_fixo=custo_indireto_fixo,
+        custo_indireto_pct=custo_indireto_pct,
+        quantidade_override=quantidade_override,
+    )
 
 
 @router.post("", response_model=OrcamentoResponse, status_code=status.HTTP_201_CREATED)

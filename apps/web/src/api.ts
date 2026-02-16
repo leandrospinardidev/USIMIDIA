@@ -10,6 +10,7 @@ import type {
   OrcamentoDetail,
   OrcamentoListItem,
   OrcamentoOperacaoInput,
+  OrcamentoPdfSimulacao,
   OrcamentoSimulacao,
   OrdemDetail,
   OrdemListItem,
@@ -326,6 +327,41 @@ export async function simularOrcamento(
     method: "POST",
     role,
     body: payload,
+  });
+}
+
+interface OrcamentoPdfSimulacaoPayload {
+  centro_trabalho_id: number;
+  file: File;
+  margem_lucro_pct?: string;
+  custo_indireto_fixo?: string;
+  custo_indireto_pct?: string;
+  quantidade_override?: number;
+}
+
+export async function simularOrcamentoPorPdf(
+  role: UserRole,
+  payload: OrcamentoPdfSimulacaoPayload
+): Promise<OrcamentoPdfSimulacao> {
+  const formData = new FormData();
+  formData.append("centro_trabalho_id", String(payload.centro_trabalho_id));
+  formData.append("file", payload.file);
+  if (payload.margem_lucro_pct?.trim()) {
+    formData.append("margem_lucro_pct", payload.margem_lucro_pct.trim());
+  }
+  if (payload.custo_indireto_fixo?.trim()) {
+    formData.append("custo_indireto_fixo", payload.custo_indireto_fixo.trim());
+  }
+  if (payload.custo_indireto_pct?.trim()) {
+    formData.append("custo_indireto_pct", payload.custo_indireto_pct.trim());
+  }
+  if (payload.quantidade_override && payload.quantidade_override > 0) {
+    formData.append("quantidade_override", String(payload.quantidade_override));
+  }
+  return apiRequestForm<OrcamentoPdfSimulacao>("/orcamentos/simulacoes/pdf", {
+    method: "POST",
+    role,
+    formData,
   });
 }
 

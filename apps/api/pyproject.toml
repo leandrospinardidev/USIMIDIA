@@ -16,6 +16,7 @@ dependencies = [
   "psycopg[binary]",
   "pydantic-settings",
   "python-multipart",
+  "pypdf",
 ]
 
 [project.optional-dependencies]

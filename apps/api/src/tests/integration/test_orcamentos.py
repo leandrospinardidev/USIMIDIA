@@ -13,6 +13,7 @@ from core.database import Base, get_db
 from main import app
 from modules.cadastro.infrastructure import models as cadastro_models  # noqa: F401
 from modules.engenharia_bom.infrastructure import models as bom_models  # noqa: F401
+from modules.orcamentos.application.services import OrcamentosService
 from modules.orcamentos.infrastructure import models as orc_models  # noqa: F401
 
 ADMIN_HEADERS = {"X-User-Role": "admin"}
@@ -304,3 +305,38 @@ def test_upload_listagem_e_download_de_anexos_orcamento(client: TestClient) -> N
     )
     assert download.status_code == 200
     assert download.content == dxf_content
+
+
+def test_simulacao_automatica_por_pdf(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    centro = _create_centro(client)
+
+    def _fake_extract_pdf_text(self: OrcamentosService, _: bytes) -> str:
+        _ = self
+        return "AÇO CARBONO QTD: 2 DIÂMETRO 39 H7 DIÂMETRO 16 H7"
+
+    monkeypatch.setattr(OrcamentosService, "_extract_pdf_text", _fake_extract_pdf_text)
+
+    response = client.post(
+        "/api/v1/orcamentos/simulacoes/pdf",
+        headers=ADMIN_HEADERS,
+        files={"file": ("desenho.pdf", b"%PDF-1.4 qualquer", "application/pdf")},
+        data={
+            "centro_trabalho_id": str(centro["id"]),
+            "margem_lucro_pct": "20",
+            "custo_indireto_pct": "5",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["leitura"]["material_inferido"] == "ACO CARBONO"
+    assert body["leitura"]["quantidade_considerada"] == 2
+    assert len(body["leitura"]["diametros_mm"]) >= 2
+    assert float(body["custos"]["preco_venda_sugerido"]) > 0
+
+    invalid = client.post(
+        "/api/v1/orcamentos/simulacoes/pdf",
+        headers=ADMIN_HEADERS,
+        files={"file": ("desenho.dxf", b"0\nSECTION", "text/plain")},
+        data={"centro_trabalho_id": str(centro["id"])},
+    )
+    assert invalid.status_code == 422

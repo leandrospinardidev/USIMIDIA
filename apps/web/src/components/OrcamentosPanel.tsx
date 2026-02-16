@@ -10,6 +10,7 @@ import {
   listOrcamentos,
   listProdutosCadastro,
   simularOrcamento,
+  simularOrcamentoPorPdf,
   uploadOrcamentoAnexo,
 } from "../api";
 import type {
@@ -19,6 +20,7 @@ import type {
   OrcamentoDetail,
   OrcamentoListItem,
   OrcamentoOperacaoInput,
+  OrcamentoPdfSimulacao,
   OrcamentoSimulacao,
   ProdutoFinalCadastro,
 } from "../types";
@@ -69,6 +71,10 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
   const [custoIndiretoPct, setCustoIndiretoPct] = useState("0");
   const [observacao, setObservacao] = useState("");
   const [simulacao, setSimulacao] = useState<OrcamentoSimulacao | null>(null);
+  const [pdfCentroId, setPdfCentroId] = useState<number | "">("");
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfQuantidadeOverride, setPdfQuantidadeOverride] = useState("");
+  const [pdfSimulacao, setPdfSimulacao] = useState<OrcamentoPdfSimulacao | null>(null);
 
   const [operacoes, setOperacoes] = useState<OperacaoDraft[]>([
     { centro_trabalho_id: "", setup_min: "0", ciclo_min: "0", descricao: "" },
@@ -217,6 +223,36 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     }
   }
 
+  async function handleSimularPdf(): Promise<void> {
+    if (!pdfCentroId) {
+      onError("Selecione o centro de trabalho para leitura automatica do PDF.");
+      return;
+    }
+    if (!pdfFile) {
+      onError("Selecione um arquivo PDF de desenho tecnico.");
+      return;
+    }
+    setSubmitting(true);
+    onError(null);
+    onSuccess(null);
+    try {
+      const response = await simularOrcamentoPorPdf(role, {
+        centro_trabalho_id: Number(pdfCentroId),
+        file: pdfFile,
+        margem_lucro_pct: margemLucroPct.trim() || undefined,
+        custo_indireto_fixo: custoIndiretoFixo,
+        custo_indireto_pct: custoIndiretoPct,
+        quantidade_override: pdfQuantidadeOverride ? Number(pdfQuantidadeOverride) : undefined,
+      });
+      setPdfSimulacao(response);
+      onSuccess("Leitura automatica do PDF concluida e custo estimado.");
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handleCriarOrcamento(): Promise<void> {
     const validationError = validateMainForm();
     if (validationError) {
@@ -339,6 +375,102 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
         <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
           <h2 className="mb-3 text-lg font-semibold">Gerador de Orcamentos</h2>
           {loadingCatalogos && <p className="text-sm text-slate-400">Carregando cadastros...</p>}
+
+          <div className="mb-4 rounded-lg border border-violet-700/40 bg-violet-900/10 p-3">
+            <h3 className="mb-2 text-sm font-semibold text-violet-200">
+              Leitura automatica de desenho tecnico (PDF)
+            </h3>
+            <p className="mb-3 text-xs text-slate-400">
+              Fluxo PDF-first: envie o desenho tecnico e o sistema infere material/dimensoes para
+              estimar custo automaticamente.
+            </p>
+            <div className="grid gap-2 md:grid-cols-2">
+              <label className="grid gap-1 text-xs">
+                <span className="text-slate-400">Centro de trabalho para estimativa</span>
+                <select
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={pdfCentroId}
+                  onChange={(event) => setPdfCentroId(event.target.value ? Number(event.target.value) : "")}
+                >
+                  <option value="">Selecione</option>
+                  {centros.map((centro) => (
+                    <option key={centro.id} value={centro.id}>
+                      {centro.codigo} - {centro.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs">
+                <span className="text-slate-400">Quantidade (override opcional)</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={pdfQuantidadeOverride}
+                  onChange={(event) => setPdfQuantidadeOverride(event.target.value)}
+                  placeholder="Se vazio, usa quantidade inferida no PDF"
+                />
+              </label>
+            </div>
+            <div className="mt-2 grid gap-2">
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
+                className="text-xs"
+              />
+              <button
+                type="button"
+                className="rounded-md border border-violet-600 px-3 py-2 text-sm text-violet-100 hover:bg-violet-900/20 disabled:opacity-50"
+                onClick={() => void handleSimularPdf()}
+                disabled={submitting || !pdfFile || !pdfCentroId}
+              >
+                Ler PDF e calcular custo automaticamente
+              </button>
+            </div>
+
+            {pdfSimulacao && (
+              <div className="mt-3 space-y-2">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <Metric
+                    label="Material inferido"
+                    value={pdfSimulacao.leitura.material_inferido || "Nao identificado"}
+                  />
+                  <Metric
+                    label="Confianca"
+                    value={pdfSimulacao.leitura.confianca}
+                  />
+                  <Metric
+                    label="Qtd considerada"
+                    value={String(pdfSimulacao.leitura.quantidade_considerada)}
+                  />
+                  <Metric
+                    label="Preco sugerido"
+                    value={`R$ ${formatNumber(pdfSimulacao.custos.preco_venda_sugerido, 2)}`}
+                  />
+                </div>
+                <p className="text-xs text-slate-300">
+                  Diametros:{" "}
+                  {pdfSimulacao.leitura.diametros_mm.length > 0
+                    ? pdfSimulacao.leitura.diametros_mm.map((d) => formatNumber(d, 3)).join(", ")
+                    : "nao identificados"}
+                  {" | "}
+                  Comprimento:{" "}
+                  {pdfSimulacao.leitura.comprimento_mm
+                    ? `${formatNumber(pdfSimulacao.leitura.comprimento_mm, 3)} mm`
+                    : "nao identificado"}
+                </p>
+                {pdfSimulacao.premissas.length > 0 && (
+                  <ul className="list-disc space-y-1 pl-5 text-xs text-amber-200/90">
+                    {pdfSimulacao.premissas.map((premissa, index) => (
+                      <li key={`premissa-${index}`}>{premissa}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
 
           <form className="grid gap-3" onSubmit={handleSimular}>
             <div className="grid gap-3 md:grid-cols-2">
