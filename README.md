@@ -5,7 +5,7 @@ Base inicial do ERP web para controle de usinagem CNC, montagem e chao de fabric
 ## Estrutura
 
 - `apps/api`: backend FastAPI
-- `apps/web`: frontend web (roadmap pronto, implementacao pendente)
+- `apps/web`: frontend web (React + Tailwind, painel MES inicial entregue)
 - `db/migrations`: migrations Alembic
 - `db/ddl`: referencia de DDL
 - `infra/docker`: docker compose para desenvolvimento local
@@ -33,4 +33,12 @@ alembic -c db/migrations/alembic.ini upgrade head
 ```bash
 pip install -e "./apps/api[dev]"
 pytest apps/api/src/tests -q
+```
+
+## Rodar frontend web
+
+```bash
+cd apps/web
+npm install
+npm run dev
 ```

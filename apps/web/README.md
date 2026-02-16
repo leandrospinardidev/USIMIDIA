@@ -1,29 +1,44 @@
 # ERP Industrial Web (Frontend)
 
-Status: **pendente de implementacao**
+Status atual: **Fase inicial implementada**
 
-Este diretorio foi preparado para a camada web do sistema.
+Implementado nesta etapa:
+- scaffold React + Vite + TypeScript + Tailwind CSS;
+- tela de operacao MES com:
+  - lista de OPs,
+  - detalhe da OP e operacoes,
+  - botoes de evento START/PAUSA/RETOMADA/STOP,
+  - registro de refugo,
+  - resumo de tempo/eventos/refugos em tempo real.
 
-## Escopo inicial sugerido
+## Rodar local
 
-1. Dashboard de indicadores
-2. Lista/detalhe de ordens de producao
-3. Painel MES para operador (Start/Pausa/Retomada/Stop)
+```bash
+npm install
+npm run dev
+```
 
-## Backend ja disponivel
+Frontend por padrao em:
+- `http://localhost:5173`
 
-A API backend esta pronta em `apps/api` com os modulos:
-- cadastro
-- engenharia BOM
-- estoque e retalhos
-- orcamentos
-- ordens de producao
-- MES
-- indicadores
+Backend esperado em:
+- `http://localhost:8000/api/v1`
 
-## Referencia funcional
+Se precisar alterar a URL da API, crie `.env.local`:
 
-Consulte:
+```env
+VITE_API_BASE_URL=http://localhost:8000/api/v1
+```
+
+## Scripts
+
+- `npm run dev`
+- `npm run build`
+- `npm run preview`
+- `npm run typecheck`
+
+## Referencias
+
 - `docs/processos/playbook-operacao-api-e-go-live.md`
 - `docs/arquitetura/roadmap-frontend.md`
 
