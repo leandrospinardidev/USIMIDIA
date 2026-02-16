@@ -1,10 +1,10 @@
 import { useState } from "react";
 
+import { AppTopbar } from "./components/AppTopbar";
 import { IndicadoresPanel } from "./components/IndicadoresPanel";
 import { MesPanel } from "./components/MesPanel";
 import type { UserRole } from "./types";
-
-type ViewMode = "mes" | "indicadores";
+import type { AppViewMode } from "./components/AppTopbar";
 
 const USER_ROLES: UserRole[] = ["operador", "pcp", "admin", "compras"];
 const STATUS_FILTERS = [
@@ -18,66 +18,24 @@ const STATUS_FILTERS = [
 ] as const;
 
 export default function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>("mes");
+  const [viewMode, setViewMode] = useState<AppViewMode>("mes");
   const [role, setRole] = useState<UserRole>("operador");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/90">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold text-slate-100">ERP Industrial Web</h1>
-              <p className="mt-1 text-sm text-slate-400">
-                Painel operacional com OP/MES e dashboard de indicadores.
-              </p>
-            </div>
-            <label className="grid gap-1 text-sm">
-              <span className="text-slate-400">Perfil (X-User-Role)</span>
-              <select
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                value={role}
-                onChange={(event) => {
-                  setRole(event.target.value as UserRole);
-                  setError(null);
-                  setSuccess(null);
-                }}
-              >
-                {USER_ROLES.map((userRole) => (
-                  <option key={userRole} value={userRole}>
-                    {userRole}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              className={`rounded-md px-3 py-2 text-sm font-medium ${
-                viewMode === "mes"
-                  ? "bg-sky-600 text-white"
-                  : "border border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
-              }`}
-              onClick={() => setViewMode("mes")}
-            >
-              Operacao MES
-            </button>
-            <button
-              className={`rounded-md px-3 py-2 text-sm font-medium ${
-                viewMode === "indicadores"
-                  ? "bg-sky-600 text-white"
-                  : "border border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
-              }`}
-              onClick={() => setViewMode("indicadores")}
-            >
-              Dashboard Indicadores
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppTopbar
+        role={role}
+        userRoles={USER_ROLES}
+        viewMode={viewMode}
+        onRoleChange={(nextRole) => {
+          setRole(nextRole);
+          setError(null);
+          setSuccess(null);
+        }}
+        onViewModeChange={setViewMode}
+      />
 
       <div className={viewMode === "mes" ? "block" : "hidden"}>
         <MesPanel

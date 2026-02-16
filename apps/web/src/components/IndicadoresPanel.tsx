@@ -6,19 +6,11 @@ import type {
   KpisGerais,
   PageMeta,
   RastreabilidadeOrdem,
-  UserRole,
 } from "../types";
 import { extractErrorMessage } from "../utils/errors";
 import { formatDateTime, formatNumber, statusBadge } from "../utils/ui";
 import { Metric } from "./Metric";
-
-interface IndicadoresPanelProps {
-  role: UserRole;
-  statusFilters: readonly string[];
-  isActive: boolean;
-  onError: (message: string | null) => void;
-  onSuccess: (message: string | null) => void;
-}
+import type { StandardPanelProps } from "./panels/types";
 
 export function IndicadoresPanel({
   role,
@@ -26,7 +18,7 @@ export function IndicadoresPanel({
   isActive,
   onError,
   onSuccess,
-}: IndicadoresPanelProps) {
+}: StandardPanelProps) {
   const [indicSearchInput, setIndicSearchInput] = useState("");
   const [indicSearchApplied, setIndicSearchApplied] = useState("");
   const [indicStatusFilter, setIndicStatusFilter] = useState("");

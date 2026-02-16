@@ -18,21 +18,13 @@ import type {
   PageMeta,
   Refugo,
   ResumoTempo,
-  UserRole,
 } from "../types";
 import { extractErrorMessage } from "../utils/errors";
 import { formatDateTime, formatNumber, statusBadge } from "../utils/ui";
 import { Metric } from "./Metric";
+import type { StandardPanelProps } from "./panels/types";
 
-interface MesPanelProps {
-  role: UserRole;
-  statusFilters: readonly string[];
-  isActive: boolean;
-  onError: (message: string | null) => void;
-  onSuccess: (message: string | null) => void;
-}
-
-export function MesPanel({ role, statusFilters, isActive, onError, onSuccess }: MesPanelProps) {
+export function MesPanel({ role, statusFilters, isActive, onError, onSuccess }: StandardPanelProps) {
   const [mesSearchInput, setMesSearchInput] = useState("");
   const [mesSearchApplied, setMesSearchApplied] = useState("");
   const [mesStatusFilter, setMesStatusFilter] = useState("");
