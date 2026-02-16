@@ -18,8 +18,9 @@ export function AppTopbar({
   onViewModeChange,
 }: AppTopbarProps) {
   return (
-    <header className="border-b border-slate-800 bg-slate-900/90">
+    <header className="border-b border-cyan-900/40 bg-slate-900/90 backdrop-blur">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4">
+        <div className="industrial-accent-strip" />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold text-slate-100">ERP Industrial Web</h1>

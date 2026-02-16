@@ -82,6 +82,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
 
   const [fileToUpload, setFileToUpload] = useState<File | null>(null);
   const [fileObs, setFileObs] = useState("");
+  const [showSavedModule, setShowSavedModule] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / 10));
 
@@ -89,6 +90,19 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     () => produtos.find((produto) => produto.id === produtoId) ?? null,
     [produtoId, produtos]
   );
+  const suggestedCycleMin = useMemo(() => {
+    const horas = Number(pdfSimulacao?.custos.horas_maquina_estimadas_unit);
+    if (!Number.isFinite(horas) || horas <= 0) {
+      return "8.00";
+    }
+    return (horas * 60).toFixed(2);
+  }, [pdfSimulacao]);
+  const operacaoPrincipal: OperacaoDraft = operacoes[0] ?? {
+    centro_trabalho_id: "",
+    setup_min: "0",
+    ciclo_min: "0",
+    descricao: "",
+  };
 
   useEffect(() => {
     if (!isActive) {
@@ -109,8 +123,11 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       setTotal(0);
       return;
     }
+    if (!showSavedModule) {
+      return;
+    }
     void loadOrcamentos();
-  }, [isActive, role, page, searchApplied, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isActive, role, page, searchApplied, statusFilter, showSavedModule]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!produtoId || !isActive) {
@@ -186,15 +203,15 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     if (!quantidade || Number(quantidade) <= 0) {
       return "Quantidade deve ser maior que zero.";
     }
-    const hasValidOperacao = operacoes.some((op) => op.centro_trabalho_id !== "");
+    const hasValidOperacao = operacoes.some((op) => op.centro_trabalho_id !== "") || Boolean(pdfCentroId);
     if (!hasValidOperacao) {
-      return "Adicione ao menos uma operacao com centro de trabalho.";
+      return "Informe ao menos um centro de usinagem para a operacao principal.";
     }
     return null;
   }
 
   function buildOperacoesPayload(): OrcamentoOperacaoInput[] {
-    return operacoes
+    const mapped = operacoes
       .filter((op) => op.centro_trabalho_id !== "")
       .map((op) => ({
         centro_trabalho_id: Number(op.centro_trabalho_id),
@@ -202,6 +219,20 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
         ciclo_min: op.ciclo_min || "0",
         descricao: op.descricao.trim() || undefined,
       }));
+    if (mapped.length > 0) {
+      return mapped;
+    }
+    if (pdfCentroId) {
+      return [
+        {
+          centro_trabalho_id: Number(pdfCentroId),
+          setup_min: "0",
+          ciclo_min: suggestedCycleMin,
+          descricao: "Usinagem CNC principal (auto)",
+        },
+      ];
+    }
+    return mapped;
   }
 
   async function handleSimular(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -256,6 +287,38 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
         quantidade_override: pdfQuantidadeOverride ? Number(pdfQuantidadeOverride) : undefined,
       });
       setPdfSimulacao(response);
+      setQuantidade(String(response.leitura.quantidade_considerada));
+      const cicloInferidoMin = (() => {
+        const horas = Number(response.custos.horas_maquina_estimadas_unit);
+        if (!Number.isFinite(horas) || horas <= 0) {
+          return "8.00";
+        }
+        return (horas * 60).toFixed(2);
+      })();
+      setOperacoes((prev) => {
+        if (prev.length === 0) {
+          return [
+            {
+              centro_trabalho_id: Number(pdfCentroId),
+              setup_min: "0",
+              ciclo_min: cicloInferidoMin,
+              descricao: "Usinagem CNC principal",
+            },
+          ];
+        }
+        const next = [...prev];
+        const first = {
+          ...next[0],
+          centro_trabalho_id: Number(pdfCentroId),
+          ciclo_min:
+            !next[0].ciclo_min || Number(next[0].ciclo_min) <= 0
+              ? cicloInferidoMin
+              : next[0].ciclo_min,
+          descricao: next[0].descricao.trim() || "Usinagem CNC principal",
+        };
+        next[0] = first;
+        return next;
+      });
       onSuccess("Leitura automatica do PDF concluida e custo estimado.");
     } catch (error) {
       onError(extractErrorMessage(error));
@@ -291,6 +354,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       setSelectedOrcamento(created);
       setSearchApplied(created.codigo);
       setSearchInput(created.codigo);
+      setShowSavedModule(true);
       setPage(1);
       await loadOrcamentos();
       onSuccess(`Orcamento ${created.codigo} criado com sucesso.`);
@@ -304,6 +368,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
   async function handleSelectOrcamento(orcamentoId: number): Promise<void> {
     setLoadingDetail(true);
     setSelectedOrcamentoId(orcamentoId);
+    setShowSavedModule(true);
     onError(null);
     try {
       const detail = await getOrcamento(role, orcamentoId);
@@ -396,10 +461,29 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
   }
 
   return (
-    <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[1.2fr_1fr]">
+    <main className="industrial-panel mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[1.2fr_1fr]">
       <section className="space-y-4">
-        <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <section className="rounded-lg border border-cyan-900/40 bg-slate-900/85 p-4 shadow-lg shadow-cyan-950/20">
+          <div className="industrial-accent-strip mb-4" />
           <h2 className="mb-3 text-lg font-semibold">Gerador de Orcamentos</h2>
+          <p className="mb-4 text-sm text-slate-300">
+            Fluxo rapido para centro de usinagem (tarugo de aco/aluminio): leia o PDF,
+            revise o custo e so depois, se quiser, salve o orcamento completo.
+          </p>
+          <div className="mb-4 grid gap-2 md:grid-cols-3">
+            <div className="rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-300">
+              <p className="font-semibold text-cyan-300">PASSO 1</p>
+              <p>Selecionar centro CNC e desenho tecnico (PDF).</p>
+            </div>
+            <div className="rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-300">
+              <p className="font-semibold text-cyan-300">PASSO 2</p>
+              <p>Sistema estima tempo, material e preco sugerido.</p>
+            </div>
+            <div className="rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-300">
+              <p className="font-semibold text-cyan-300">PASSO 3</p>
+              <p>Opcional: salvar orcamento e anexar desenho.</p>
+            </div>
+          </div>
           {loadingCatalogos && <p className="text-sm text-slate-400">Carregando cadastros...</p>}
 
           <div className="mb-4 rounded-lg border border-violet-700/40 bg-violet-900/10 p-3">
@@ -501,40 +585,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
           <form className="grid gap-3" onSubmit={handleSimular}>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">Codigo do orcamento (opcional)</span>
-                <input
-                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
-                  value={codigo}
-                  onChange={(event) => setCodigo(event.target.value)}
-                  placeholder="ORC-2026-001"
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">Referencia de projeto</span>
-                <input
-                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
-                  value={referenciaProjeto}
-                  onChange={(event) => setReferenciaProjeto(event.target.value)}
-                  placeholder="PROJ-MAQ-CNC-001"
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">Cliente (opcional)</span>
-                <select
-                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
-                  value={clienteId}
-                  onChange={(event) => setClienteId(event.target.value ? Number(event.target.value) : "")}
-                >
-                  <option value="">Nao informado</option>
-                  {clientes.map((cliente) => (
-                    <option key={cliente.id} value={cliente.id}>
-                      {cliente.codigo} - {cliente.razao_social}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">Produto final</span>
+                <span className="text-slate-400">Produto final (obrigatorio)</span>
                 <select
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
                   value={produtoId}
@@ -549,23 +600,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                 </select>
               </label>
               <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">BOM (opcional)</span>
-                <select
-                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
-                  value={bomId}
-                  onChange={(event) => setBomId(event.target.value ? Number(event.target.value) : "")}
-                >
-                  <option value="">Resolver automaticamente</option>
-                  {boms.map((bom) => (
-                    <option key={bom.id} value={bom.id}>
-                      ID {bom.id} - Versao {bom.versao} ({bom.status})
-                    </option>
-                  ))}
-                </select>
-                {loadingBoms && <span className="text-xs text-slate-500">Carregando BOMs...</span>}
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">Quantidade</span>
+                <span className="text-slate-400">Quantidade (obrigatorio)</span>
                 <input
                   type="number"
                   min="0.001"
@@ -576,135 +611,263 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">
-                  Margem lucro % (padrao: {formatNumber(produtoSelecionado?.margem_lucro_padrao_pct ?? "-", 2)})
-                </span>
+                <span className="text-slate-400">Centro de usinagem principal</span>
+                <select
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={operacaoPrincipal.centro_trabalho_id}
+                  onChange={(event) => updateOperacao(0, "centro_trabalho_id", event.target.value)}
+                >
+                  <option value="">Selecione</option>
+                  {centros.map((centro) => (
+                    <option key={centro.id} value={centro.id}>
+                      {centro.codigo} - {centro.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span className="text-slate-400">Ciclo estimado (min por peca)</span>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
-                  value={margemLucroPct}
-                  onChange={(event) => setMargemLucroPct(event.target.value)}
-                  placeholder="Ex.: 30"
+                  value={operacaoPrincipal.ciclo_min}
+                  onChange={(event) => updateOperacao(0, "ciclo_min", event.target.value)}
+                  placeholder={suggestedCycleMin}
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">Custo indireto fixo (R$)</span>
+                <span className="text-slate-400">Setup do lote (min)</span>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
-                  value={custoIndiretoFixo}
-                  onChange={(event) => setCustoIndiretoFixo(event.target.value)}
+                  value={operacaoPrincipal.setup_min}
+                  onChange={(event) => updateOperacao(0, "setup_min", event.target.value)}
                 />
               </label>
-              <label className="grid gap-1 text-sm">
-                <span className="text-slate-400">Custo indireto %</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
-                  value={custoIndiretoPct}
-                  onChange={(event) => setCustoIndiretoPct(event.target.value)}
-                />
-              </label>
-            </div>
-
-            <label className="grid gap-1 text-sm">
-              <span className="text-slate-400">Observacao</span>
-              <textarea
-                className="min-h-20 rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
-                value={observacao}
-                onChange={(event) => setObservacao(event.target.value)}
-                placeholder="Informacoes tecnicas adicionais do projeto..."
-              />
-            </label>
-
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Operacoes de usinagem/montagem</h3>
+              <div className="grid content-end text-xs text-slate-300">
                 <button
                   type="button"
-                  className="rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
-                  onClick={addOperacao}
+                  className="rounded-md border border-cyan-700/60 bg-cyan-900/10 px-3 py-2 text-left text-cyan-100 hover:bg-cyan-900/20"
+                  onClick={() => {
+                    if (!pdfCentroId) {
+                      onError("Leia um PDF primeiro para aplicar centro/tempo automaticamente.");
+                      return;
+                    }
+                    updateOperacao(0, "centro_trabalho_id", String(pdfCentroId));
+                    updateOperacao(0, "ciclo_min", suggestedCycleMin);
+                    if (!operacaoPrincipal.descricao.trim()) {
+                      updateOperacao(0, "descricao", "Usinagem CNC principal");
+                    }
+                    onSuccess("Centro e ciclo principal preenchidos com base na leitura do PDF.");
+                  }}
                 >
-                  + Adicionar operacao
+                  Aplicar parametros sugeridos pelo PDF
                 </button>
               </div>
-              <div className="space-y-2">
-                {operacoes.map((op, index) => (
-                  <div key={`op-${index}`} className="grid gap-2 rounded border border-slate-800 p-2 md:grid-cols-12">
-                    <label className="grid gap-1 text-xs md:col-span-4">
-                      <span className="text-slate-400">Centro</span>
-                      <select
-                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2"
-                        value={op.centro_trabalho_id}
-                        onChange={(event) => updateOperacao(index, "centro_trabalho_id", event.target.value)}
-                      >
-                        <option value="">Selecione</option>
-                        {centros.map((centro) => (
-                          <option key={centro.id} value={centro.id}>
-                            {centro.codigo} - {centro.nome}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-xs md:col-span-2">
-                      <span className="text-slate-400">Setup (min)</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2"
-                        value={op.setup_min}
-                        onChange={(event) => updateOperacao(index, "setup_min", event.target.value)}
-                      />
-                    </label>
-                    <label className="grid gap-1 text-xs md:col-span-2">
-                      <span className="text-slate-400">Ciclo (min)</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2"
-                        value={op.ciclo_min}
-                        onChange={(event) => updateOperacao(index, "ciclo_min", event.target.value)}
-                      />
-                    </label>
-                    <label className="grid gap-1 text-xs md:col-span-3">
-                      <span className="text-slate-400">Descricao</span>
-                      <input
-                        className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2"
-                        value={op.descricao}
-                        onChange={(event) => updateOperacao(index, "descricao", event.target.value)}
-                        placeholder="Ex.: Corte CNC"
-                      />
-                    </label>
-                    <div className="grid content-end md:col-span-1">
-                      <button
-                        type="button"
-                        className="rounded border border-rose-700 px-2 py-2 text-xs text-rose-200 hover:bg-rose-900/30 disabled:opacity-40"
-                        onClick={() => removeOperacao(index)}
-                        disabled={operacoes.length === 1}
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
+
+            <details className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+              <summary className="cursor-pointer text-sm font-medium text-slate-200">
+                Campos opcionais e custos avancados
+              </summary>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className="grid gap-1 text-sm">
+                  <span className="text-slate-400">Codigo do orcamento (opcional)</span>
+                  <input
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={codigo}
+                    onChange={(event) => setCodigo(event.target.value)}
+                    placeholder="ORC-2026-001"
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className="text-slate-400">Referencia de projeto</span>
+                  <input
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={referenciaProjeto}
+                    onChange={(event) => setReferenciaProjeto(event.target.value)}
+                    placeholder="PROJ-MAQ-CNC-001"
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className="text-slate-400">Cliente (opcional)</span>
+                  <select
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={clienteId}
+                    onChange={(event) => setClienteId(event.target.value ? Number(event.target.value) : "")}
+                  >
+                    <option value="">Nao informado</option>
+                    {clientes.map((cliente) => (
+                      <option key={cliente.id} value={cliente.id}>
+                        {cliente.codigo} - {cliente.razao_social}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className="text-slate-400">BOM (opcional)</span>
+                  <select
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={bomId}
+                    onChange={(event) => setBomId(event.target.value ? Number(event.target.value) : "")}
+                  >
+                    <option value="">Resolver automaticamente</option>
+                    {boms.map((bom) => (
+                      <option key={bom.id} value={bom.id}>
+                        ID {bom.id} - Versao {bom.versao} ({bom.status})
+                      </option>
+                    ))}
+                  </select>
+                  {loadingBoms && <span className="text-xs text-slate-500">Carregando BOMs...</span>}
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className="text-slate-400">
+                    Margem lucro % (padrao: {formatNumber(produtoSelecionado?.margem_lucro_padrao_pct ?? "-", 2)})
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={margemLucroPct}
+                    onChange={(event) => setMargemLucroPct(event.target.value)}
+                    placeholder="Ex.: 30"
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className="text-slate-400">Custo indireto fixo (R$)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={custoIndiretoFixo}
+                    onChange={(event) => setCustoIndiretoFixo(event.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className="text-slate-400">Custo indireto %</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                    value={custoIndiretoPct}
+                    onChange={(event) => setCustoIndiretoPct(event.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="mt-3 grid gap-1 text-sm">
+                <span className="text-slate-400">Observacao</span>
+                <textarea
+                  className="min-h-20 rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                  value={observacao}
+                  onChange={(event) => setObservacao(event.target.value)}
+                  placeholder="Informacoes tecnicas adicionais do projeto..."
+                />
+              </label>
+            </details>
+
+            <details className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+              <summary className="cursor-pointer text-sm font-medium text-slate-200">
+                Operacoes secundarias (opcional)
+              </summary>
+              <div className="mt-3 space-y-2">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800"
+                    onClick={addOperacao}
+                  >
+                    + Adicionar operacao secundaria
+                  </button>
+                </div>
+                {operacoes.length === 1 && (
+                  <p className="text-xs text-slate-500">
+                    Somente operacao principal ativa. Adicione outras somente se necessario.
+                  </p>
+                )}
+                {operacoes.slice(1).map((op, index) => {
+                  const realIndex = index + 1;
+                  return (
+                    <div
+                      key={`op-${realIndex}`}
+                      className="grid gap-2 rounded border border-slate-800 p-2 md:grid-cols-12"
+                    >
+                      <label className="grid gap-1 text-xs md:col-span-4">
+                        <span className="text-slate-400">Centro</span>
+                        <select
+                          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2"
+                          value={op.centro_trabalho_id}
+                          onChange={(event) =>
+                            updateOperacao(realIndex, "centro_trabalho_id", event.target.value)
+                          }
+                        >
+                          <option value="">Selecione</option>
+                          {centros.map((centro) => (
+                            <option key={centro.id} value={centro.id}>
+                              {centro.codigo} - {centro.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="grid gap-1 text-xs md:col-span-2">
+                        <span className="text-slate-400">Setup (min)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2"
+                          value={op.setup_min}
+                          onChange={(event) => updateOperacao(realIndex, "setup_min", event.target.value)}
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs md:col-span-2">
+                        <span className="text-slate-400">Ciclo (min)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2"
+                          value={op.ciclo_min}
+                          onChange={(event) => updateOperacao(realIndex, "ciclo_min", event.target.value)}
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs md:col-span-3">
+                        <span className="text-slate-400">Descricao</span>
+                        <input
+                          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2"
+                          value={op.descricao}
+                          onChange={(event) => updateOperacao(realIndex, "descricao", event.target.value)}
+                          placeholder="Ex.: Furo profundo"
+                        />
+                      </label>
+                      <div className="grid content-end md:col-span-1">
+                        <button
+                          type="button"
+                          className="rounded border border-rose-700 px-2 py-2 text-xs text-rose-200 hover:bg-rose-900/30"
+                          onClick={() => removeOperacao(realIndex)}
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
 
             <div className="flex flex-wrap gap-2">
               <button
                 type="submit"
-                className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium hover:bg-sky-500 disabled:opacity-50"
+                className="rounded-md bg-cyan-600 px-4 py-2 text-sm font-medium hover:bg-cyan-500 disabled:opacity-50"
                 disabled={submitting}
               >
-                Simular custo
+                Simular custo rapido
               </button>
               <button
                 type="button"
@@ -712,7 +875,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
                 disabled={submitting}
                 onClick={() => void handleCriarOrcamento()}
               >
-                Salvar orcamento
+                Salvar orcamento completo
               </button>
             </div>
           </form>
@@ -785,6 +948,23 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       </section>
 
       <section className="space-y-4">
+        <section className="rounded-lg border border-amber-700/40 bg-amber-950/15 p-4">
+          <h3 className="mb-1 text-sm font-semibold text-amber-200">Modo operacao para centro CNC</h3>
+          <p className="mb-3 text-xs text-amber-100/80">
+            Para cotacao rapida de peca usinada em tarugo, use apenas os campos da esquerda.
+            Lista de orcamentos salvos e anexos fica em gestao completa.
+          </p>
+          <button
+            type="button"
+            className="rounded border border-amber-500/60 px-3 py-2 text-xs font-medium text-amber-100 hover:bg-amber-900/30"
+            onClick={() => setShowSavedModule((prev) => !prev)}
+          >
+            {showSavedModule ? "Ocultar gestao completa" : "Mostrar gestao completa"}
+          </button>
+        </section>
+
+        {showSavedModule && (
+          <>
         <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
           <h3 className="mb-3 text-sm font-semibold text-slate-300">Orcamentos salvos</h3>
           <div className="mb-3 grid gap-2">
@@ -978,6 +1158,8 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
             </div>
           )}
         </section>
+          </>
+        )}
       </section>
     </main>
   );
