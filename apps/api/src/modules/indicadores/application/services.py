@@ -102,7 +102,11 @@ class IndicadoresService:
             else Decimal("0")
         )
 
-        custos_orcados = [item["custo_total_orcado"] for item in metricas if item["custo_total_orcado"] is not None]
+        custos_orcados = [
+            item["custo_total_orcado"]
+            for item in metricas
+            if item["custo_total_orcado"] is not None
+        ]
         if custos_orcados:
             custo_total_orcado = sum(custos_orcados, start=Decimal("0"))
             desvio = custo_total_real - custo_total_orcado
@@ -545,7 +549,9 @@ class IndicadoresService:
         insumo_ids = {lote.insumo_id for lote in lotes.values()}
         insumos = {
             insumo.id: insumo
-            for insumo in self.db.scalars(select(InsumoModel).where(InsumoModel.id.in_(insumo_ids))).all()
+            for insumo in self.db.scalars(
+                select(InsumoModel).where(InsumoModel.id.in_(insumo_ids))
+            ).all()
         }
 
         lotes_payload = []
