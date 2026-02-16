@@ -119,8 +119,8 @@ async def upload_anexo_orcamento(
     _: WritePermission,
     db: DbSession,
     orcamento_id: int,
-    file: UploadFile = File(...),
-    observacao: str | None = Form(default=None),
+    file: Annotated[UploadFile, File(...)],
+    observacao: Annotated[str | None, Form()] = None,
 ):
     content = await file.read()
     return _service(db).upload_anexo(
@@ -140,7 +140,11 @@ def list_anexos_orcamento(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
 ) -> dict[str, Any]:
-    items, total = _service(db).list_anexos(orcamento_id=orcamento_id, page=page, page_size=page_size)
+    items, total = _service(db).list_anexos(
+        orcamento_id=orcamento_id,
+        page=page,
+        page_size=page_size,
+    )
     return _paginated_response(items, page=page, page_size=page_size, total=total)
 
 

@@ -298,6 +298,9 @@ def test_upload_listagem_e_download_de_anexos_orcamento(client: TestClient) -> N
     assert detail.status_code == 200
     assert len(detail.json()["anexos"]) == 1
 
-    download = client.get(f"/api/v1/orcamentos/anexos/{anexo['id']}/download", headers=ADMIN_HEADERS)
+    download = client.get(
+        f"/api/v1/orcamentos/anexos/{anexo['id']}/download",
+        headers=ADMIN_HEADERS,
+    )
     assert download.status_code == 200
     assert download.content == dxf_content
