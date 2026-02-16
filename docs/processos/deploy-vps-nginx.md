@@ -60,6 +60,10 @@ Use o servico `migrator` (perfil `ops`):
 docker compose --env-file .env.prod -f docker-compose.prod.yml --profile ops run --rm migrator
 ```
 
+> O `migrator` ja possui retry interno. Em ambientes onde o healthcheck do Postgres oscila,
+> a aplicacao nao fica travada: `api`/`web` sobem e o `migrator` tenta aplicar as migrations
+> algumas vezes ate o banco aceitar conexao.
+
 ## 4) Testes de smoke (antes do dominio)
 
 Ainda no servidor:
