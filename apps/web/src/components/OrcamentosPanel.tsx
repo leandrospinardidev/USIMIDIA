@@ -4,6 +4,7 @@ import {
   createOrcamentoPresetCnc,
   criarOrcamento,
   downloadOrcamentoAnexo,
+  downloadOrcamentoPdf,
   getOrcamento,
   getOrcamentoPresetSugestao,
   listBomsByProduto,
@@ -624,6 +625,7 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
         cliente_id: clienteId ? Number(clienteId) : undefined,
         produto_final_id: Number(produtoId),
         bom_id: bomId ? Number(bomId) : undefined,
+        preset_cnc_id: selectedBackendPreset ? Number(selectedBackendPreset.id) : undefined,
         quantidade,
         margem_lucro_pct: margemLucroPct.trim() || undefined,
         custo_indireto_fixo: custoIndiretoFixo,
@@ -638,7 +640,9 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
       setShowSavedModule(true);
       setPage(1);
       await loadOrcamentos();
-      onSuccess(`Orcamento ${created.codigo} criado com sucesso.`);
+      const latestVersao = created.versoes?.[0]?.versao;
+      await handleDownloadOrcamentoPdfSilent(created.id, latestVersao);
+      onSuccess(`Orcamento ${created.codigo} criado com sucesso e PDF formal gerado.`);
     } catch (error) {
       onError(extractErrorMessage(error));
     } finally {
@@ -688,17 +692,48 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
     onSuccess(null);
     try {
       const payload = await downloadOrcamentoAnexo(role, anexoId);
-      const url = URL.createObjectURL(payload.blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = payload.fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      downloadBlobAsFile(payload.blob, payload.fileName);
       onSuccess("Download do anexo iniciado.");
     } catch (error) {
       onError(extractErrorMessage(error));
+    }
+  }
+
+  function downloadBlobAsFile(blob: Blob, fileName: string): void {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleDownloadOrcamentoPdf(
+    orcamentoId: number,
+    versao?: number
+  ): Promise<void> {
+    onError(null);
+    onSuccess(null);
+    try {
+      const payload = await downloadOrcamentoPdf(role, orcamentoId, versao);
+      downloadBlobAsFile(payload.blob, payload.fileName);
+      onSuccess("PDF formal do orcamento gerado e download iniciado.");
+    } catch (error) {
+      onError(extractErrorMessage(error));
+    }
+  }
+
+  async function handleDownloadOrcamentoPdfSilent(
+    orcamentoId: number,
+    versao?: number
+  ): Promise<void> {
+    try {
+      const payload = await downloadOrcamentoPdf(role, orcamentoId, versao);
+      downloadBlobAsFile(payload.blob, payload.fileName);
+    } catch {
+      // Falha silenciosa para nao bloquear criacao do orcamento.
     }
   }
 
@@ -2146,11 +2181,26 @@ export function OrcamentosPanel({ role, isActive, onError, onSuccess }: Standard
           {selectedOrcamento && (
             <div className="space-y-3">
               <div className="rounded border border-slate-800 bg-slate-950 p-3">
-                <div className="mb-1 flex items-center justify-between">
+                <div className="mb-2 flex items-center justify-between gap-2">
                   <h4 className="font-semibold">{selectedOrcamento.codigo}</h4>
-                  <span className={`rounded border px-2 py-0.5 text-xs ${statusBadge(selectedOrcamento.status)}`}>
-                    {selectedOrcamento.status}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`rounded border px-2 py-0.5 text-xs ${statusBadge(selectedOrcamento.status)}`}
+                    >
+                      {selectedOrcamento.status}
+                    </span>
+                    <button
+                      className="rounded border border-emerald-700 px-2 py-1 text-xs text-emerald-200 hover:bg-emerald-900/30"
+                      onClick={() =>
+                        void handleDownloadOrcamentoPdf(
+                          selectedOrcamento.id,
+                          selectedOrcamento.versoes[0]?.versao
+                        )
+                      }
+                    >
+                      Baixar PDF formal
+                    </button>
+                  </div>
                 </div>
                 <p className="text-sm text-slate-300">{selectedOrcamento.produto_descricao}</p>
                 <p className="text-xs text-slate-400">

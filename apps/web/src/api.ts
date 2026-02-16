@@ -650,4 +650,36 @@ export async function downloadOrcamentoAnexo(
   return { blob, fileName };
 }
 
+export async function downloadOrcamentoPdf(
+  role: UserRole,
+  orcamentoId: number,
+  versao?: number
+): Promise<{ blob: Blob; fileName: string }> {
+  const query = versao && versao > 0 ? `?versao=${versao}` : "";
+  const response = await fetch(`${API_BASE_URL}/orcamentos/${orcamentoId}/pdf${query}`, {
+    method: "GET",
+    headers: {
+      "X-User-Role": role,
+    },
+  });
+  if (!response.ok) {
+    let detail = "Falha no download do PDF do orcamento";
+    try {
+      const data = (await response.json()) as { detail?: string };
+      if (typeof data.detail === "string") {
+        detail = data.detail;
+      }
+    } catch {
+      // ignora parse quando nao ha corpo json
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("content-disposition") ?? "";
+  const fileNameMatch = /filename="?([^"]+)"?/.exec(contentDisposition);
+  const fileName = fileNameMatch?.[1] ?? `orcamento-${orcamentoId}.pdf`;
+  return { blob, fileName };
+}
+
 export { ApiError };

@@ -17,6 +17,7 @@ dependencies = [
   "pydantic-settings",
   "python-multipart",
   "pypdf",
+  "reportlab",
 ]
 
 [project.optional-dependencies]

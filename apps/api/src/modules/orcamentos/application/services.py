@@ -555,6 +555,180 @@ class OrcamentosService:
             "absolute_path": str(absolute_path),
         }
 
+    def generate_orcamento_pdf(
+        self,
+        *,
+        orcamento_id: int,
+        versao: int | None = None,
+    ) -> dict[str, Any]:
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.pdfgen import canvas
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Geracao de PDF indisponivel no servidor.",
+            ) from exc
+
+        detail = self.get_orcamento_detail(orcamento_id)
+        versoes = detail.get("versoes", [])
+        if not versoes:
+            raise HTTPException(
+                status_code=HTTP_422,
+                detail="Orcamento sem versoes para formalizacao em PDF.",
+            )
+        versao_escolhida = versoes[0]
+        if versao is not None:
+            versao_escolhida = next(
+                (item for item in versoes if int(item["versao"]) == int(versao)),
+                None,
+            )
+            if versao_escolhida is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Versao informada nao encontrada para este orcamento.",
+                )
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+        left = 36
+        top = height - 36
+        line_h = 14
+        y = top
+
+        def ensure_space(required_lines: int) -> None:
+            nonlocal y
+            if y - (required_lines * line_h) < 48:
+                pdf.showPage()
+                y = top
+
+        def write_line(label: str, value: str) -> None:
+            nonlocal y
+            ensure_space(1)
+            pdf.setFont("Helvetica-Bold", 9)
+            pdf.drawString(left, y, f"{label}:")
+            pdf.setFont("Helvetica", 9)
+            pdf.drawString(left + 110, y, value)
+            y -= line_h
+
+        def money(value: Any) -> str:
+            decimal_value = self._to_decimal(value, "valor_pdf")
+            normalized = decimal_value.quantize(Decimal("0.01"))
+            return f"R$ {normalized}"
+
+        def dec(value: Any, precision: str = "0.000") -> str:
+            decimal_value = self._to_decimal(value, "valor_pdf")
+            return str(decimal_value.quantize(Decimal(precision)))
+
+        pdf.setTitle(f"Orcamento {detail['codigo']}")
+        pdf.setAuthor("ERP Industrial")
+        pdf.setSubject("Formalizacao de orcamento")
+
+        pdf.setFont("Helvetica-Bold", 16)
+        pdf.drawString(left, y, "ORCAMENTO FORMAL")
+        y -= 22
+        pdf.setStrokeColorRGB(0.3, 0.3, 0.3)
+        pdf.line(left, y, width - left, y)
+        y -= 16
+
+        write_line("Codigo", str(detail["codigo"]))
+        write_line("Status", str(detail["status"]))
+        write_line("Projeto", str(detail.get("referencia_projeto") or "-"))
+        write_line("Cliente", str(detail.get("cliente_nome") or "-"))
+        write_line(
+            "Produto",
+            f"{detail.get('produto_codigo') or '-'} - {detail.get('produto_descricao') or '-'}",
+        )
+        write_line("Data emissao", self._format_datetime_for_pdf(detail.get("created_at")))
+        write_line("Versao documento", str(versao_escolhida["versao"]))
+        y -= 6
+
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(left, y, "Resumo financeiro")
+        y -= 16
+        write_line("Quantidade", dec(versao_escolhida["quantidade"], "0.000"))
+        write_line("Margem lucro", f"{dec(versao_escolhida['margem_lucro_pct'], '0.01')}%")
+        write_line("Custo material", money(versao_escolhida["custo_material_total"]))
+        write_line("Custo maquina", money(versao_escolhida["custo_maquina_total"]))
+        write_line("Custo indireto", money(versao_escolhida["custo_indireto_total"]))
+        write_line("Preco venda", money(versao_escolhida["preco_venda"]))
+        y -= 4
+
+        pdf.setFont("Helvetica-Bold", 11)
+        ensure_space(2)
+        pdf.drawString(left, y, "Operacoes consideradas")
+        y -= 16
+        pdf.setFont("Helvetica-Bold", 8)
+        pdf.drawString(left, y, "SEQ")
+        pdf.drawString(left + 36, y, "CENTRO")
+        pdf.drawString(left + 160, y, "DESCRICAO")
+        pdf.drawString(left + 360, y, "SETUP")
+        pdf.drawString(left + 420, y, "CICLO")
+        pdf.drawString(left + 482, y, "CUSTO")
+        y -= 10
+        pdf.line(left, y, width - left, y)
+        y -= 12
+        pdf.setFont("Helvetica", 8)
+        for operacao in versao_escolhida.get("operacoes", []):
+            ensure_space(2)
+            pdf.drawString(left, y, str(operacao.get("sequencia", "-")))
+            pdf.drawString(left + 36, y, str(operacao.get("codigo_centro", "-"))[:20])
+            pdf.drawString(left + 160, y, str(operacao.get("descricao") or "-")[:40])
+            pdf.drawRightString(left + 405, y, dec(operacao.get("setup_min", 0), "0.01"))
+            pdf.drawRightString(left + 465, y, dec(operacao.get("ciclo_min", 0), "0.01"))
+            pdf.drawRightString(left + 550, y, money(operacao.get("custo_operacao", 0)))
+            y -= 12
+
+        y -= 6
+        pdf.setFont("Helvetica-Bold", 11)
+        ensure_space(2)
+        pdf.drawString(left, y, "Materiais considerados")
+        y -= 16
+        pdf.setFont("Helvetica-Bold", 8)
+        pdf.drawString(left, y, "CODIGO")
+        pdf.drawString(left + 90, y, "DESCRICAO")
+        pdf.drawString(left + 340, y, "QTD")
+        pdf.drawString(left + 410, y, "CUSTO UN.")
+        pdf.drawString(left + 492, y, "CUSTO TOTAL")
+        y -= 10
+        pdf.line(left, y, width - left, y)
+        y -= 12
+        pdf.setFont("Helvetica", 8)
+        for material in versao_escolhida.get("materiais", []):
+            ensure_space(2)
+            pdf.drawString(left, y, str(material.get("codigo", "-"))[:14])
+            pdf.drawString(left + 90, y, str(material.get("descricao", "-"))[:45])
+            pdf.drawRightString(left + 385, y, dec(material.get("quantidade_total", 0), "0.000"))
+            pdf.drawRightString(left + 470, y, money(material.get("custo_unitario", 0)))
+            pdf.drawRightString(left + 550, y, money(material.get("custo_total", 0)))
+            y -= 12
+
+        ensure_space(6)
+        y -= 8
+        pdf.line(left, y, width - left, y)
+        y -= 14
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(
+            left,
+            y,
+            "Documento gerado automaticamente pelo ERP Industrial para formalizacao do orcamento.",
+        )
+        y -= 12
+        pdf.drawString(left, y, f"Gerado em: {self._format_datetime_for_pdf(datetime.now(UTC))}")
+        y -= 24
+        pdf.line(left, y, left + 220, y)
+        pdf.drawString(left, y - 10, "Responsavel comercial / PCP")
+
+        pdf.save()
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+        return {
+            "filename": f"{detail['codigo']}-v{versao_escolhida['versao']}.pdf",
+            "content_type": "application/pdf",
+            "bytes": pdf_bytes,
+        }
+
     def list_presets_cnc(
         self,
         *,
@@ -1567,6 +1741,21 @@ class OrcamentosService:
             return Decimal(str(value if value is not None else default))
         except Exception:  # noqa: BLE001
             return Decimal(default)
+
+    def _format_datetime_for_pdf(self, value: Any) -> str:
+        if isinstance(value, datetime):
+            value_dt = value
+        elif value is None:
+            return "-"
+        else:
+            try:
+                value_dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except Exception:  # noqa: BLE001
+                return str(value)
+        if value_dt.tzinfo is None:
+            value_dt = value_dt.replace(tzinfo=UTC)
+        local = value_dt.astimezone(UTC)
+        return local.strftime("%Y-%m-%d %H:%M:%S UTC")
 
     def _simulate_operacoes(
         self,

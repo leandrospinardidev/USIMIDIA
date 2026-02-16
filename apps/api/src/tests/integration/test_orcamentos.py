@@ -287,6 +287,11 @@ def test_orcamento_versionado_e_status(client: TestClient) -> None:
     assert status_update.status_code == 200
     assert status_update.json()["status"] == "ENVIADO"
 
+    pdf_download = client.get(f"/api/v1/orcamentos/{orc['id']}/pdf?versao=2", headers=ADMIN_HEADERS)
+    assert pdf_download.status_code == 200
+    assert pdf_download.headers["content-type"].startswith("application/pdf")
+    assert pdf_download.content.startswith(b"%PDF")
+
 
 def test_upload_listagem_e_download_de_anexos_orcamento(client: TestClient) -> None:
     cliente = _create_cliente(client)

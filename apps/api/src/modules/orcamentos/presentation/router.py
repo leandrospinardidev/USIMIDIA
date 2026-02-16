@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -283,6 +283,21 @@ def list_preset_historico(
 @router.get("/{orcamento_id}", response_model=OrcamentoResponse)
 def get_orcamento(_: ReadPermission, db: DbSession, orcamento_id: int):
     return _service(db).get_orcamento_detail(orcamento_id)
+
+
+@router.get("/{orcamento_id}/pdf")
+def download_orcamento_pdf(
+    _: ReadPermission,
+    db: DbSession,
+    orcamento_id: int,
+    versao: int | None = Query(default=None, ge=1),
+):
+    payload = _service(db).generate_orcamento_pdf(orcamento_id=orcamento_id, versao=versao)
+    return Response(
+        content=payload["bytes"],
+        media_type=payload["content_type"],
+        headers={"Content-Disposition": f'attachment; filename="{payload["filename"]}"'},
+    )
 
 
 @router.post(
